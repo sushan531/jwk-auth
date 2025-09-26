@@ -3,6 +3,8 @@ package service
 import (
 	"encoding/json"
 	"fmt"
+	"regexp"
+	"time"
 
 	"github.com/lestrrat-go/jwx/v3/jwa"
 	"github.com/lestrrat-go/jwx/v3/jws"
@@ -29,9 +31,23 @@ func NewAuth(jwkManager internal.JwkManager, jwtManager internal.JwtManager) Aut
 	}
 }
 func (a *auth) GenerateToken(input map[string]interface{}, keyPrefix string) (string, error) {
+	// Validate inputs
+	if keyPrefix == "" {
+		return "", fmt.Errorf("keyPrefix cannot be empty")
+	}
+
+	// Sanitize keyPrefix to prevent injection
+	if !isValidKeyPrefix(keyPrefix) {
+		return "", fmt.Errorf("invalid keyPrefix format")
+	}
+
+	if input == nil {
+		return "", fmt.Errorf("input claims cannot be nil")
+	}
+	// This will invalidate any existing tokens for this device type
 	err := a.jwkManager.AddOrReplaceKeyToSet(keyPrefix)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("failed to rotate key for device '%s' (this invalidates previous sessions): %w", keyPrefix, err)
 	}
 	unsignedToken, err := a.jwtManager.GenerateUnsignedToken(input)
 	if err != nil {
@@ -83,7 +99,21 @@ func (a *auth) VerifyTokenSignatureAndGetClaims(jwtToken string) (map[string]int
 		return nil, errUnmarshallingData
 	}
 
-	var kid = payload["kid"].(string)
+	// Safe type assertion with validation
+	kidInterface, exists := payload["kid"]
+	if !exists {
+		return nil, fmt.Errorf("token missing required 'kid' claim")
+	}
+
+	kid, ok := kidInterface.(string)
+	if !ok {
+		return nil, fmt.Errorf("'kid' claim must be a string, got %T", kidInterface)
+	}
+
+	if kid == "" {
+		return nil, fmt.Errorf("'kid' claim cannot be empty")
+	}
+
 	publicKey, errFindingPublicKey := a.jwkManager.GetPublicKeyBy(kid)
 	if errFindingPublicKey != nil {
 		return nil, errFindingPublicKey
@@ -94,5 +124,22 @@ func (a *auth) VerifyTokenSignatureAndGetClaims(jwtToken string) (map[string]int
 		return nil, fmt.Errorf("failed to verify token signature: %w", errValidatingToken)
 	}
 
+	// Validate expiration
+	if exp, exists := payload["exp"]; exists {
+		if expFloat, ok := exp.(float64); ok {
+			expTime := time.Unix(int64(expFloat), 0)
+			if time.Now().After(expTime) {
+				return nil, fmt.Errorf("token has expired")
+			}
+		}
+	}
+
 	return payload, nil
+}
+
+// Helper function to validate keyPrefix
+func isValidKeyPrefix(keyPrefix string) bool {
+	// Allow only alphanumeric characters and hyphens
+	matched, _ := regexp.MatchString("^[a-zA-Z0-9-]+$", keyPrefix)
+	return matched && len(keyPrefix) <= 50
 }

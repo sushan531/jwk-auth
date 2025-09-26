@@ -17,10 +17,15 @@ type JwtManager interface {
 	VerifyTokenSignatureAndGetClaims(jwtToken string, publicKey rsa.PublicKey) (map[string]interface{}, error)
 }
 
-type jwtManager struct{}
+type jwtManager struct {
+	config *Config
+}
 
-func NewJwtManager() JwtManager {
-	return &jwtManager{}
+func NewJwtManager(config *Config) JwtManager {
+	if config == nil {
+		config = DefaultConfig()
+	}
+	return &jwtManager{config: config}
 }
 
 func (j *jwtManager) GenerateUnsignedToken(claims map[string]interface{}) (jwt.Token, error) {
@@ -30,7 +35,7 @@ func (j *jwtManager) GenerateUnsignedToken(claims map[string]interface{}) (jwt.T
 	var tokenKeys = map[string]interface{}{
 		"claim":           claims,
 		jwt.IssuedAtKey:   currentTime.Unix(),
-		jwt.ExpirationKey: currentTime.Add(24 * time.Hour).Unix(),
+		jwt.ExpirationKey: currentTime.Add(j.config.TokenExpiry).Unix(),
 	}
 
 	for key, value := range tokenKeys {

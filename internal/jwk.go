@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sync"
 
 	"github.com/lestrrat-go/jwx/v3/jwk"
 )
@@ -21,6 +22,7 @@ type JwkManager interface {
 
 type jwkManager struct {
 	jwkSet jwk.Set
+	mutex  sync.RWMutex
 }
 
 func NewJwkManager() JwkManager {
@@ -55,6 +57,9 @@ func (j *jwkManager) InitializeJwkSet(keyPrefix string) error {
 }
 
 func (j *jwkManager) AddOrReplaceKeyToSet(keyPrefix string) error {
+	j.mutex.Lock()
+	defer j.mutex.Unlock()
+
 	if j.jwkSet == nil {
 		err := j.InitializeJwkSet(keyPrefix)
 		if err != nil {
@@ -126,6 +131,9 @@ func (j *jwkManager) GetJwkSetFromStorage(jwkSetJSON string) error {
 }
 
 func (j *jwkManager) GetPublicKeyBy(keyId string) (*rsa.PublicKey, error) {
+	j.mutex.RLock()
+	defer j.mutex.RUnlock()
+
 	if j.jwkSet == nil {
 		return nil, errors.New("JWK set not initialized")
 	}

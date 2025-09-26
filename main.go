@@ -10,7 +10,9 @@ import (
 func main() {
 	// Create managers
 	jwkManager := internal.NewJwkManager()
-	jwtManager := internal.NewJwtManager()
+	jwtManager := internal.NewJwtManager(
+		internal.DefaultConfig(),
+	)
 
 	// Create auth service
 	authService := service.NewAuth(jwkManager, jwtManager)
