@@ -1,16 +1,20 @@
 package service
 
 import (
+	"encoding/json"
 	"fmt"
-	"jwk-auth/internal"
 
 	"github.com/lestrrat-go/jwx/v3/jwa"
+	"github.com/lestrrat-go/jwx/v3/jws"
 	"github.com/lestrrat-go/jwx/v3/jwt"
+	"github.com/sushan531/jwt-auth/internal"
 )
 
 type Auth interface {
 	GenerateToken(input map[string]interface{}, keyPrefix string) (string, error)
-	//VerifyTokenSignatureAndGetClaims(token string, publicKey rsa.PublicKey) (map[string]interface{}, error)
+	MarshalJwkSet() ([]byte, error)
+	ParseJsonBytes(jwkSetJSON string) error
+	VerifyTokenSignatureAndGetClaims(token string) (map[string]interface{}, error)
 }
 
 type auth struct {
@@ -25,7 +29,7 @@ func NewAuth(jwkManager internal.JwkManager, jwtManager internal.JwtManager) Aut
 	}
 }
 func (a *auth) GenerateToken(input map[string]interface{}, keyPrefix string) (string, error) {
-	err := a.jwkManager.AddKeyToSet(keyPrefix)
+	err := a.jwkManager.AddOrReplaceKeyToSet(keyPrefix)
 	if err != nil {
 		return "", err
 	}
@@ -49,6 +53,46 @@ func (a *auth) GenerateToken(input map[string]interface{}, keyPrefix string) (st
 
 }
 
-//func (a *auth) VerifyTokenSignatureAndGetClaims(token string, publicKey rsa.PublicKey) (map[string]interface{}, error) {
-//
-//}
+func (a *auth) MarshalJwkSet() ([]byte, error) {
+	jwkSet, err := a.jwkManager.GetJwkSetForStorage()
+	if err != nil {
+		return nil, err
+	}
+	return jwkSet, nil
+}
+
+func (a *auth) ParseJsonBytes(jwkSetJSON string) error {
+	err := a.jwkManager.GetJwkSetFromStorage(jwkSetJSON)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (a *auth) VerifyTokenSignatureAndGetClaims(jwtToken string) (map[string]interface{}, error) {
+	parsedToken, err := jws.Parse([]byte(jwtToken))
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse JWT: %w", err)
+	}
+
+	var payload map[string]interface{}
+	payloadInBytes := parsedToken.Payload()
+
+	errUnmarshallingData := json.Unmarshal(payloadInBytes, &payload)
+	if errUnmarshallingData != nil {
+		return nil, errUnmarshallingData
+	}
+
+	var kid = payload["kid"].(string)
+	publicKey, errFindingPublicKey := a.jwkManager.GetPublicKeyBy(kid)
+	if errFindingPublicKey != nil {
+		return nil, errFindingPublicKey
+	}
+
+	_, errValidatingToken := jwt.Parse([]byte(jwtToken), jwt.WithKey(jwa.RS256(), publicKey))
+	if errValidatingToken != nil {
+		return nil, fmt.Errorf("failed to verify token signature: %w", errValidatingToken)
+	}
+
+	return payload, nil
+}
