@@ -3,8 +3,8 @@ package main
 import (
 	"fmt"
 
-	"github.com/sushan531/jwt-auth/internal"
-	"github.com/sushan531/jwt-auth/service"
+	"github.com/sushan531/jwk-auth/internal"
+	"github.com/sushan531/jwk-auth/service"
 )
 
 func main() {

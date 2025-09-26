@@ -1,4 +1,4 @@
-module github.com/sushan531/jwt-auth
+module github.com/sushan531/jwk-auth
 
 go 1.24.4
 

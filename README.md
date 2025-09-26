@@ -14,7 +14,7 @@ A Go library for JWT token generation and verification using JSON Web Keys (JWK)
 ## Installation
 
 ```bash
-go get github.com/sushan531/jwt-auth
+go get github.com/sushan531/jwk-auth
 ```
 
 ## Quick Start
@@ -26,8 +26,8 @@ package main
 
 import (
     "fmt"
-    "github.com/sushan531/jwt-auth/internal"
-    "github.com/sushan531/jwt-auth/service"
+    "github.com/sushan531/jwk-auth/internal"
+    "github.com/sushan531/jwk-auth/service"
 )
 
 func main() {
@@ -88,8 +88,8 @@ import (
     
     "github.com/gofiber/fiber/v2"
     "github.com/gofiber/fiber/v2/middleware/cors"
-    "github.com/sushan531/jwt-auth/internal"
-    "github.com/sushan531/jwt-auth/service"
+    "github.com/sushan531/jwk-auth/internal"
+    "github.com/sushan531/jwk-auth/service"
 )
 
 type AuthHandler struct {
@@ -266,8 +266,8 @@ import (
     
     "github.com/labstack/echo/v4"
     "github.com/labstack/echo/v4/middleware"
-    "github.com/sushan531/jwt-auth/internal"
-    "github.com/sushan531/jwt-auth/service"
+    "github.com/sushan531/jwk-auth/internal"
+    "github.com/sushan531/jwk-auth/service"
 )
 
 type AuthHandler struct {

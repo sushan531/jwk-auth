@@ -9,7 +9,7 @@ import (
 	"github.com/lestrrat-go/jwx/v3/jwa"
 	"github.com/lestrrat-go/jwx/v3/jws"
 	"github.com/lestrrat-go/jwx/v3/jwt"
-	"github.com/sushan531/jwt-auth/internal"
+	"github.com/sushan531/jwk-auth/internal"
 )
 
 type Auth interface {
