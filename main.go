@@ -3,15 +3,15 @@ package main
 import (
 	"fmt"
 
-	"github.com/sushan531/jwk-auth/internal"
+	"github.com/sushan531/jwk-auth/core"
 	"github.com/sushan531/jwk-auth/service"
 )
 
 func main() {
 	// Create managers
-	jwkManager := internal.NewJwkManager()
-	jwtManager := internal.NewJwtManager(
-		internal.DefaultConfig(),
+	jwkManager := core.NewJwkManager()
+	jwtManager := core.NewJwtManager(
+		core.DefaultConfig(),
 	)
 
 	// Create auth service

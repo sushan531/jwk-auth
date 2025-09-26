@@ -1,4 +1,4 @@
-package internal
+package core
 
 type DeviceClaims struct {
 	Username string `json:"username"`

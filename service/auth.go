@@ -9,7 +9,7 @@ import (
 	"github.com/lestrrat-go/jwx/v3/jwa"
 	"github.com/lestrrat-go/jwx/v3/jws"
 	"github.com/lestrrat-go/jwx/v3/jwt"
-	"github.com/sushan531/jwk-auth/internal"
+	"github.com/sushan531/jwk-auth/core"
 )
 
 type Auth interface {
@@ -20,11 +20,11 @@ type Auth interface {
 }
 
 type auth struct {
-	jwkManager internal.JwkManager
-	jwtManager internal.JwtManager
+	jwkManager core.JwkManager
+	jwtManager core.JwtManager
 }
 
-func NewAuth(jwkManager internal.JwkManager, jwtManager internal.JwtManager) Auth {
+func NewAuth(jwkManager core.JwkManager, jwtManager core.JwtManager) Auth {
 	return &auth{
 		jwkManager: jwkManager,
 		jwtManager: jwtManager,

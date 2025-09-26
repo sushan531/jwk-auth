@@ -25,50 +25,50 @@ go get github.com/sushan531/jwk-auth
 package main
 
 import (
-    "fmt"
-    "github.com/sushan531/jwk-auth/internal"
-    "github.com/sushan531/jwk-auth/service"
+	"fmt"
+	"github.com/sushan531/jwk-auth/core"
+	"github.com/sushan531/jwk-auth/service"
 )
 
 func main() {
-    // Create managers
-    jwkManager := internal.NewJwkManager()
-    jwtManager := internal.NewJwtManager(internal.DefaultConfig())
-    
-    // Create auth service
-    authService := service.NewAuth(jwkManager, jwtManager)
-    
-    // Define claims for the token
-    claims := map[string]interface{}{
-        "username": "john_doe",
-        "user_id":  "12345",
-        "scope":    "read:data write:data",
-    }
-    
-    // Generate a token for Android device
-    token, err := authService.GenerateToken(claims, "android")
-    if err != nil {
-        fmt.Printf("Error generating token: %v\n", err)
-        return
-    }
-    
-    fmt.Printf("Generated Token: %s\n", token)
-    
-    // Get JWK set for public key distribution
-    jwkSetJSON, err := authService.MarshalJwkSet()
-    if err != nil {
-        fmt.Printf("Error marshaling JWK set: %v\n", err)
-        return
-    }
-    
-    // Verify token
-    claims, err = authService.VerifyTokenSignatureAndGetClaims(token)
-    if err != nil {
-        fmt.Printf("Error verifying token: %v\n", err)
-        return
-    }
-    
-    fmt.Printf("Verified claims: %v\n", claims)
+	// Create managers
+	jwkManager := internal.NewJwkManager()
+	jwtManager := internal.NewJwtManager(internal.DefaultConfig())
+
+	// Create auth service
+	authService := service.NewAuth(jwkManager, jwtManager)
+
+	// Define claims for the token
+	claims := map[string]interface{}{
+		"username": "john_doe",
+		"user_id":  "12345",
+		"scope":    "read:data write:data",
+	}
+
+	// Generate a token for Android device
+	token, err := authService.GenerateToken(claims, "android")
+	if err != nil {
+		fmt.Printf("Error generating token: %v\n", err)
+		return
+	}
+
+	fmt.Printf("Generated Token: %s\n", token)
+
+	// Get JWK set for public key distribution
+	jwkSetJSON, err := authService.MarshalJwkSet()
+	if err != nil {
+		fmt.Printf("Error marshaling JWK set: %v\n", err)
+		return
+	}
+
+	// Verify token
+	claims, err = authService.VerifyTokenSignatureAndGetClaims(token)
+	if err != nil {
+		fmt.Printf("Error verifying token: %v\n", err)
+		return
+	}
+
+	fmt.Printf("Verified claims: %v\n", claims)
 }
 ```
 
@@ -82,28 +82,28 @@ Here's how to integrate the JWK authentication library with a Fiber REST API:
 package main
 
 import (
-    "encoding/json"
-    "log"
-    "strings"
-    
-    "github.com/gofiber/fiber/v2"
-    "github.com/gofiber/fiber/v2/middleware/cors"
-    "github.com/sushan531/jwk-auth/internal"
-    "github.com/sushan531/jwk-auth/service"
+	"encoding/json"
+	"log"
+	"strings"
+
+	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v2/middleware/cors"
+	"github.com/sushan531/jwk-auth/core"
+	"github.com/sushan531/jwk-auth/service"
 )
 
 type AuthHandler struct {
-    authService service.Auth
+	authService service.Auth
 }
 
 func NewAuthHandler() *AuthHandler {
-    jwkManager := internal.NewJwkManager()
-    jwtManager := internal.NewJwtManager(internal.DefaultConfig())
-    authService := service.NewAuth(jwkManager, jwtManager)
-    
-    return &AuthHandler{
-        authService: authService,
-    }
+	jwkManager := internal.NewJwkManager()
+	jwtManager := internal.NewJwtManager(internal.DefaultConfig())
+	authService := service.NewAuth(jwkManager, jwtManager)
+
+	return &AuthHandler{
+		authService: authService,
+	}
 }
 ```
 
@@ -260,28 +260,28 @@ Here's how to integrate with Echo framework:
 package main
 
 import (
-    "encoding/json"
-    "net/http"
-    "strings"
-    
-    "github.com/labstack/echo/v4"
-    "github.com/labstack/echo/v4/middleware"
-    "github.com/sushan531/jwk-auth/internal"
-    "github.com/sushan531/jwk-auth/service"
+	"encoding/json"
+	"net/http"
+	"strings"
+
+	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v4/middleware"
+	"github.com/sushan531/jwk-auth/core"
+	"github.com/sushan531/jwk-auth/service"
 )
 
 type AuthHandler struct {
-    authService service.Auth
+	authService service.Auth
 }
 
 func NewAuthHandler() *AuthHandler {
-    jwkManager := internal.NewJwkManager()
-    jwtManager := internal.NewJwtManager(internal.DefaultConfig())
-    authService := service.NewAuth(jwkManager, jwtManager)
-    
-    return &AuthHandler{
-        authService: authService,
-    }
+	jwkManager := internal.NewJwkManager()
+	jwtManager := internal.NewJwtManager(internal.DefaultConfig())
+	authService := service.NewAuth(jwkManager, jwtManager)
+
+	return &AuthHandler{
+		authService: authService,
+	}
 }
 ```
 
