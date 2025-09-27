@@ -2,89 +2,88 @@ package main
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/sushan531/jwk-auth/core"
 	"github.com/sushan531/jwk-auth/service"
 )
 
 func main() {
+	// Use builder pattern for configuration
+	config := core.NewConfigBuilder().
+		WithTokenExpiry(2*time.Hour).
+		WithRefreshTokenExpiry(7*24*time.Hour).
+		WithKeySize(2048).
+		WithCacheSettings(100, time.Hour).
+		Build()
 
-	// Create auth service
-	authService := service.NewAuth(
-		core.NewJwkManager(),
-		core.NewJwtManager(),
-		core.DefaultConfig(),
-	)
+	// Use factory pattern for service creation
+	factory := service.NewServiceFactory(config)
+	authService, tokenService, keyService := factory.CreateAllServices()
 
-	// Define claims for the token
-	claims := map[string]any{
+	// Example usage with improved error handling
+	accessClaims := map[string]any{
 		"username": "testuser",
-		"scope":    "read:data",
+		"user_id":  "12345",
+		"scope":    "read:data write:data",
 	}
+
 	refreshClaims := map[string]any{
 		"username": "testuser",
-		"purpose":  "access",
-	}
-	claims2 := map[string]any{
-		"username": "testuser",
-		"scope":    "read:data",
-	}
-	refreshClaims2 := map[string]any{
-		"username": "testuser",
-		"purpose":  "access",
+		"user_id":  "12345",
+		"purpose":  "refresh",
 	}
 
-	// Generate a token
-	token, refresh, err := authService.GenerateAccessRefreshTokenPair(claims, refreshClaims, "android")
-	if err != nil {
-		fmt.Printf("Error generating token: %v\n", err)
-		return
-	}
-
-	token2, refresh2, err := authService.GenerateAccessRefreshTokenPair(claims2, refreshClaims2, "ios")
-	if err != nil {
-		fmt.Printf("Error generating token: %v\n", err)
-		return
-	}
-	// Generate a token
-	token3, refresh3, err := authService.GenerateAccessRefreshTokenPair(claims, refreshClaims, "android")
-	if err != nil {
-		fmt.Printf("Error generating token: %v\n", err)
-		return
-	}
-
-	//fmt.Printf("Generated Token: %s\n, Refresh Token: %s\n", token, refresh)
-	//fmt.Printf("Generated Token: %s\n, Refresh Token: %s\n", token2, refresh2)
-	//fmt.Printf("Generated Token: %s\n, Refresh Token: %s\n", token3, refresh3)
-	// Marshal JWK set
-	jwkSetJSON, err := authService.MarshalJwkSet()
-	if err != nil {
-		fmt.Printf("Error marshaling JWK set: %v\n", err)
-		return
-	}
-	fmt.Printf("Marshaled JWK Set: %s\n", jwkSetJSON)
-
-	// Here you could add more test logic, like trying to parse and verify the token.
-	err = authService.ParseJsonBytes(
-		string(jwkSetJSON),
+	// Generate token pair
+	accessToken, refreshToken, err := authService.GenerateAccessRefreshTokenPair(
+		accessClaims,
+		refreshClaims,
+		"android",
 	)
 	if err != nil {
-		fmt.Printf("Error parsing JWK set: %v\n", err)
+		fmt.Printf("Error generating tokens: %v\n", err)
 		return
 	}
-	for _, v := range []string{refresh, refresh2, refresh3} {
-		data, err := authService.VerifyTokenSignatureAndGetClaims(v)
-		if err != nil {
-			fmt.Printf("Error parsing JWK set: %v\n", err)
-		}
-		fmt.Printf("data: %v\n", data)
+
+	// Validate tokens using the token service
+	accessTokenClaims, err := tokenService.ValidateAccessToken(accessToken)
+	if err != nil {
+		fmt.Printf("Error validating access token: %v\n", err)
+		return
 	}
-	fmt.Println("\n")
-	for _, v := range []string{token, token2, token3} {
-		data, err := authService.VerifyTokenSignatureAndGetClaims(v)
-		if err != nil {
-			fmt.Printf("Error parsing JWK set: %v\n", err)
-		}
-		fmt.Printf("data: %v\n", data)
+
+	refreshTokenClaims, err := tokenService.ValidateRefreshToken(refreshToken)
+	if err != nil {
+		fmt.Printf("Error validating refresh token: %v\n", err)
+		return
 	}
+
+	fmt.Printf("Access token validated successfully: %+v\n", accessTokenClaims)
+	fmt.Printf("Refresh token validated successfully: %+v\n", refreshTokenClaims)
+
+	// Get key metadata
+	metadata, err := keyService.GetKeyMetadata("android")
+	if err != nil {
+		fmt.Printf("Error getting key metadata: %v\n", err)
+		return
+	}
+
+	fmt.Printf("Key metadata: %+v\n", metadata)
+
+	// Refresh access token
+	newAccessToken, err := tokenService.RefreshAccessToken(refreshToken, accessClaims, "android")
+	if err != nil {
+		fmt.Printf("Error refreshing access token: %v\n", err)
+		return
+	}
+
+	fmt.Printf("New access token generated: %s\n", newAccessToken)
+
+	oldAccessToken, err := tokenService.ValidateAccessToken(accessToken)
+	if err != nil {
+		fmt.Printf("Error validating access token: %v\n", err)
+		return
+	}
+	fmt.Printf("Access token validated successfully: %+v\n", oldAccessToken)
+
 }

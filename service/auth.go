@@ -9,7 +9,6 @@ import (
 	"github.com/lestrrat-go/jwx/v3/jws"
 	"github.com/lestrrat-go/jwx/v3/jwt"
 	"github.com/sushan531/jwk-auth/core"
-	"github.com/sushan531/jwk-auth/helpers"
 )
 
 type Auth interface {
@@ -19,12 +18,24 @@ type Auth interface {
 	MarshalJwkSet() ([]byte, error)
 	ParseJsonBytes(jwkSetJSON string) error
 	VerifyTokenSignatureAndGetClaims(token string) (map[string]any, error)
+	// New methods for better functionality
+	ValidateToken(token string, expectedPurpose string) (*TokenClaims, error)
+	RevokeTokensForDevice(keyPrefix string) error
+}
+
+type TokenClaims struct {
+	Claims    map[string]any `json:"claims"`
+	Purpose   string         `json:"purpose"`
+	ExpiresAt time.Time      `json:"expires_at"`
+	IssuedAt  time.Time      `json:"issued_at"`
+	KeyID     string         `json:"key_id"`
 }
 
 type auth struct {
 	config     *core.Config
 	jwkManager core.JwkManager
 	jwtManager core.JwtManager
+	validator  *core.Validator
 }
 
 func NewAuth(jwkManager core.JwkManager, jwtManager core.JwtManager, config *core.Config) Auth {
@@ -32,98 +43,141 @@ func NewAuth(jwkManager core.JwkManager, jwtManager core.JwtManager, config *cor
 		config:     config,
 		jwkManager: jwkManager,
 		jwtManager: jwtManager,
+		validator:  core.NewValidator(),
 	}
 }
 
-// GenerateAccessRefreshTokenPair is used when user login or register, it will generate access token and refresh token
+// Refactored to eliminate duplication
+func (a *auth) generateSignedToken(claims map[string]any, keyPrefix string, expiry time.Duration, rotateKey bool) (string, error) {
+	// Validate inputs
+	if err := a.validator.ValidateKeyPrefix(keyPrefix); err != nil {
+		return "", core.NewAuthError("generateSignedToken", err)
+	}
+
+	if err := a.validator.ValidateClaims(claims); err != nil {
+		return "", core.NewAuthError("generateSignedToken", err)
+	}
+
+	if err := a.validator.ValidateExpiry(expiry); err != nil {
+		return "", core.NewAuthError("generateSignedToken", err)
+	}
+
+	// Rotate key if needed (for access tokens)
+	if rotateKey {
+		if err := a.jwkManager.AddOrReplaceKeyToSet(keyPrefix); err != nil {
+			return "", core.NewAuthError("generateSignedToken", fmt.Errorf("failed to rotate key for device '%s': %w", keyPrefix, err))
+		}
+	}
+
+	// Generate unsigned token
+	unsignedToken, err := a.jwtManager.GenerateUnsignedToken(claims, expiry)
+	if err != nil {
+		return "", core.NewAuthError("generateSignedToken", err)
+	}
+
+	// Get private key and sign
+	privateKey, kid, err := a.jwkManager.GetPrivateKeyWithId(keyPrefix)
+	if err != nil {
+		return "", core.NewAuthError("generateSignedToken", err)
+	}
+
+	if err := unsignedToken.Set("kid", kid); err != nil {
+		return "", core.NewAuthError("generateSignedToken", fmt.Errorf("failed to set key id in token: %w", err))
+	}
+
+	signedToken, err := jwt.Sign(unsignedToken, jwt.WithKey(jwa.RS256(), privateKey))
+	if err != nil {
+		return "", core.NewAuthError("generateSignedToken", fmt.Errorf("failed to sign token: %w", err))
+	}
+
+	return string(signedToken), nil
+}
+
 func (a *auth) GenerateAccessRefreshTokenPair(input map[string]any, refresh map[string]any, keyPrefix string) (string, string, error) {
-	accessToken, accessTokenGenErr := a.GenerateToken(input, keyPrefix, a.config.TokenExpiry, "access")
-	if accessTokenGenErr != nil {
-		return "", "", accessTokenGenErr
+	// Generate access token (with key rotation)
+	accessToken, err := a.generateSignedToken(input, keyPrefix, a.config.TokenExpiry, true)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to generate access token: %w", err)
 	}
-	refreshToken, refreshTokenGenErr := a.GenerateToken(refresh, keyPrefix, a.config.RefreshTokenExpiry, "refresh")
-	if refreshTokenGenErr != nil {
-		return "", "", refreshTokenGenErr
+
+	// Generate refresh token (without key rotation)
+	refreshToken, err := a.generateSignedToken(refresh, keyPrefix, a.config.RefreshTokenExpiry, false)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to generate refresh token: %w", err)
 	}
+
 	return accessToken, refreshToken, nil
 }
 
-// GenerateTokenFromRefreshToken generates token from refresh token so no need to delete old private key, Directly create a new token and return
-func (a *auth) GenerateTokenFromRefreshToken(input map[string]any, keyPrefix string, expiry time.Duration) (string, error) {
-
-	// Sanitize keyPrefix to prevent injection
-	if !helpers.IsValidKeyPrefix(keyPrefix) {
-		return "", fmt.Errorf("invalid keyPrefix format")
+func (a *auth) GenerateToken(input map[string]any, keyPrefix string, expiry time.Duration, purpose string) (string, error) {
+	if err := a.validator.ValidateTokenPurpose(purpose); err != nil {
+		return "", core.NewAuthError("GenerateToken", err)
 	}
 
+	// Add purpose to claims
 	if input == nil {
-		return "", fmt.Errorf("input claims cannot be nil")
+		input = make(map[string]any)
 	}
-	unsignedToken, err := a.jwtManager.GenerateUnsignedToken(input, expiry)
-	if err != nil {
-		return "", err
-	}
-	privateKey, kid, err := a.jwkManager.GetPrivateKeyWithId(keyPrefix)
+	input["purpose"] = purpose
 
-	errSettingKeyId := unsignedToken.Set("kid", kid)
-	if errSettingKeyId != nil {
-		return "", fmt.Errorf("failed to set key id in token: %w", errSettingKeyId)
-	}
-
-	signedToken, err := jwt.Sign(unsignedToken, jwt.WithKey(jwa.RS256(), privateKey))
-	if err != nil {
-		return "", fmt.Errorf("failed to sign token: %w", err)
-	}
-
-	return string(signedToken), nil
-
+	// Rotate key only for access tokens
+	rotateKey := purpose == "access"
+	return a.generateSignedToken(input, keyPrefix, expiry, rotateKey)
 }
 
-// GenerateToken generates token for user login or register, it will generate access token or refresh token
-// This will delete old private key and generate new one for access token.
-// For refresh token it will generate using existing private key
-func (a *auth) GenerateToken(input map[string]any, keyPrefix string, expiry time.Duration, purpose string) (string, error) {
-	// Validate inputs
-	if keyPrefix == "" {
-		return "", fmt.Errorf("keyPrefix cannot be empty")
-	}
-
-	// Sanitize keyPrefix to prevent injection
-	if !helpers.IsValidKeyPrefix(keyPrefix) {
-		return "", fmt.Errorf("invalid keyPrefix format")
-	}
-
+func (a *auth) GenerateTokenFromRefreshToken(input map[string]any, keyPrefix string, expiry time.Duration) (string, error) {
+	// Add purpose to claims
 	if input == nil {
-		return "", fmt.Errorf("input claims cannot be nil")
+		input = make(map[string]any)
 	}
-	// This will invalidate any existing tokens for this device type
-	if purpose != "access" && purpose != "refresh" {
-		return "", fmt.Errorf("purpose must be 'access' or 'refresh'")
+	input["purpose"] = "access"
+
+	// Don't rotate key when generating from refresh token
+	return a.generateSignedToken(input, keyPrefix, expiry, false)
+}
+
+// Enhanced token validation with structured response
+func (a *auth) ValidateToken(token string, expectedPurpose string) (*TokenClaims, error) {
+	claims, err := a.VerifyTokenSignatureAndGetClaims(token)
+	if err != nil {
+		return nil, err
 	}
-	if purpose == "access" {
-		err := a.jwkManager.AddOrReplaceKeyToSet(keyPrefix)
-		if err != nil {
-			return "", fmt.Errorf("failed to rotate key for device '%s' (this invalidates previous sessions): %w", keyPrefix, err)
+	// Extract and validate purpose
+	purpose, ok := claims["purpose"].(string)
+	if !ok {
+		purpose = "access" // Default for backward compatibility
+	}
+
+	if expectedPurpose != "" && purpose != expectedPurpose {
+		return nil, core.NewAuthError("ValidateToken", fmt.Errorf("expected purpose '%s', got '%s'", expectedPurpose, purpose))
+	}
+
+	// Extract timing information
+	var expiresAt, issuedAt time.Time
+	if exp, exists := claims["exp"]; exists {
+		if expFloat, ok := exp.(float64); ok {
+			expiresAt = time.Unix(int64(expFloat), 0)
 		}
 	}
-	unsignedToken, err := a.jwtManager.GenerateUnsignedToken(input, expiry)
-	if err != nil {
-		return "", err
-	}
-	privateKey, kid, err := a.jwkManager.GetPrivateKeyWithId(keyPrefix)
-
-	errSettingKeyId := unsignedToken.Set("kid", kid)
-	if errSettingKeyId != nil {
-		return "", fmt.Errorf("failed to set key id in token: %w", errSettingKeyId)
+	if iat, exists := claims["iat"]; exists {
+		if iatFloat, ok := iat.(float64); ok {
+			issuedAt = time.Unix(int64(iatFloat), 0)
+		}
 	}
 
-	signedToken, err := jwt.Sign(unsignedToken, jwt.WithKey(jwa.RS256(), privateKey))
-	if err != nil {
-		return "", fmt.Errorf("failed to sign token: %w", err)
-	}
+	keyID, _ := claims["kid"].(string)
 
-	return string(signedToken), nil
+	return &TokenClaims{
+		Claims:    claims,
+		Purpose:   purpose,
+		ExpiresAt: expiresAt,
+		IssuedAt:  issuedAt,
+		KeyID:     keyID,
+	}, nil
+}
 
+func (a *auth) RevokeTokensForDevice(keyPrefix string) error {
+	return a.jwkManager.AddOrReplaceKeyToSet(keyPrefix)
 }
 
 // MarshalJwkSet marshals the JWK set to JSON for storage purpose
