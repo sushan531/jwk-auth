@@ -8,46 +8,54 @@ import (
 )
 
 func main() {
-	// Create managers
-	jwkManager := core.NewJwkManager()
-	jwtManager := core.NewJwtManager(
+
+	// Create auth service
+	authService := service.NewAuth(
+		core.NewJwkManager(),
+		core.NewJwtManager(),
 		core.DefaultConfig(),
 	)
 
-	// Create auth service
-	authService := service.NewAuth(jwkManager, jwtManager)
-
 	// Define claims for the token
-	claims := map[string]interface{}{
+	claims := map[string]any{
 		"username": "testuser",
 		"scope":    "read:data",
 	}
-	claims2 := map[string]interface{}{
+	refreshClaims := map[string]any{
+		"username": "testuser",
+		"purpose":  "access",
+	}
+	claims2 := map[string]any{
 		"username": "testuser",
 		"scope":    "read:data",
 	}
+	refreshClaims2 := map[string]any{
+		"username": "testuser",
+		"purpose":  "access",
+	}
+
 	// Generate a token
-	token, err := authService.GenerateToken(claims, "android")
+	token, refresh, err := authService.GenerateAccessRefreshTokenPair(claims, refreshClaims, "android")
 	if err != nil {
 		fmt.Printf("Error generating token: %v\n", err)
 		return
 	}
 
-	token2, err := authService.GenerateToken(claims2, "ios")
+	token2, refresh2, err := authService.GenerateAccessRefreshTokenPair(claims2, refreshClaims2, "ios")
 	if err != nil {
 		fmt.Printf("Error generating token: %v\n", err)
 		return
 	}
 	// Generate a token
-	token3, err := authService.GenerateToken(claims, "android")
+	token3, refresh3, err := authService.GenerateAccessRefreshTokenPair(claims, refreshClaims, "android")
 	if err != nil {
 		fmt.Printf("Error generating token: %v\n", err)
 		return
 	}
 
-	fmt.Printf("Generated Token: %s\n", token)
-	fmt.Printf("Generated Token: %s\n", token2)
-	fmt.Printf("Generated Token: %s\n", token3)
+	//fmt.Printf("Generated Token: %s\n, Refresh Token: %s\n", token, refresh)
+	//fmt.Printf("Generated Token: %s\n, Refresh Token: %s\n", token2, refresh2)
+	//fmt.Printf("Generated Token: %s\n, Refresh Token: %s\n", token3, refresh3)
 	// Marshal JWK set
 	jwkSetJSON, err := authService.MarshalJwkSet()
 	if err != nil {
@@ -64,12 +72,19 @@ func main() {
 		fmt.Printf("Error parsing JWK set: %v\n", err)
 		return
 	}
+	for _, v := range []string{refresh, refresh2, refresh3} {
+		data, err := authService.VerifyTokenSignatureAndGetClaims(v)
+		if err != nil {
+			fmt.Printf("Error parsing JWK set: %v\n", err)
+		}
+		fmt.Printf("data: %v\n", data)
+	}
+	fmt.Println("\n")
 	for _, v := range []string{token, token2, token3} {
 		data, err := authService.VerifyTokenSignatureAndGetClaims(v)
 		if err != nil {
 			fmt.Printf("Error parsing JWK set: %v\n", err)
 		}
 		fmt.Printf("data: %v\n", data)
-
 	}
 }

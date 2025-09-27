@@ -39,7 +39,7 @@ func main() {
 	authService := service.NewAuth(jwkManager, jwtManager)
 
 	// Define claims for the token
-	claims := map[string]interface{}{
+	claims := map[string]any{
 		"username": "john_doe",
 		"user_id":  "12345",
 		"scope":    "read:data write:data",
@@ -129,7 +129,7 @@ func (h *AuthHandler) Login(c *fiber.Ctx) error {
     }
     
     // Create claims
-    claims := map[string]interface{}{
+    claims := map[string]any{
         "username":    req.Username,
         "user_id":     getUserID(req.Username), // implement your own logic
         "scope":       "read:data write:data",
@@ -156,7 +156,7 @@ func (h *AuthHandler) GetJWKS(c *fiber.Ctx) error {
         return c.Status(500).JSON(fiber.Map{"error": "Failed to get JWK set"})
     }
     
-    var jwkSetMap map[string]interface{}
+    var jwkSetMap map[string]any
     if err := json.Unmarshal(jwkSet, &jwkSetMap); err != nil {
         return c.Status(500).JSON(fiber.Map{"error": "Failed to parse JWK set"})
     }
@@ -220,7 +220,7 @@ func main() {
     api := app.Group("/api", authHandler.AuthMiddleware())
     
     api.Get("/profile", func(c *fiber.Ctx) error {
-        claims := c.Locals("claims").(map[string]interface{})
+        claims := c.Locals("claims").(map[string]any)
         return c.JSON(fiber.Map{
             "message": "Protected endpoint",
             "user":    claims,
@@ -306,7 +306,7 @@ func (h *AuthHandler) Login(c echo.Context) error {
     }
     
     // Create claims
-    claims := map[string]interface{}{
+    claims := map[string]any{
         "username":    req.Username,
         "user_id":     getUserID(req.Username),
         "scope":       "read:data write:data",
@@ -319,7 +319,7 @@ func (h *AuthHandler) Login(c echo.Context) error {
         return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to generate token"})
     }
     
-    return c.JSON(http.StatusOK, map[string]interface{}{
+    return c.JSON(http.StatusOK, map[string]any{
         "token":      token,
         "token_type": "Bearer",
         "expires_in": 86400,
@@ -332,7 +332,7 @@ func (h *AuthHandler) GetJWKS(c echo.Context) error {
         return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to get JWK set"})
     }
     
-    var jwkSetMap map[string]interface{}
+    var jwkSetMap map[string]any
     if err := json.Unmarshal(jwkSet, &jwkSetMap); err != nil {
         return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to parse JWK set"})
     }
@@ -396,8 +396,8 @@ func main() {
     api := e.Group("/api", authHandler.AuthMiddleware())
     
     api.GET("/profile", func(c echo.Context) error {
-        claims := c.Get("claims").(map[string]interface{})
-        return c.JSON(http.StatusOK, map[string]interface{}{
+        claims := c.Get("claims").(map[string]any)
+        return c.JSON(http.StatusOK, map[string]any{
             "message": "Protected endpoint",
             "user":    claims,
         })
@@ -405,7 +405,7 @@ func main() {
     
     api.GET("/data", func(c echo.Context) error {
         username := c.Get("username").(string)
-        return c.JSON(http.StatusOK, map[string]interface{}{
+        return c.JSON(http.StatusOK, map[string]any{
             "message": "Hello " + username,
             "data":    []string{"item1", "item2", "item3"},
         })

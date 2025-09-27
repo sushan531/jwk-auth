@@ -1,41 +1,34 @@
 package core
 
 import (
-	"crypto/rsa"
 	"encoding/json"
 	"fmt"
 	"time"
 
-	"github.com/lestrrat-go/jwx/v3/jwa"
 	"github.com/lestrrat-go/jwx/v3/jws"
 	"github.com/lestrrat-go/jwx/v3/jwt"
 )
 
 type JwtManager interface {
-	GenerateUnsignedToken(claims map[string]interface{}) (jwt.Token, error)
-	ParseToken(jwtToken string) (map[string]interface{}, error)
-	VerifyTokenSignatureAndGetClaims(jwtToken string, publicKey rsa.PublicKey) (map[string]interface{}, error)
+	GenerateUnsignedToken(claims map[string]any, expiry time.Duration) (jwt.Token, error)
+	ParseToken(jwtToken string) (map[string]any, error)
+	//VerifyTokenSignatureAndGetClaims(jwtToken string, publicKey rsa.PublicKey) (map[string]any, error)
 }
 
 type jwtManager struct {
-	config *Config
 }
 
-func NewJwtManager(config *Config) JwtManager {
-	if config == nil {
-		config = DefaultConfig()
-	}
-	return &jwtManager{config: config}
+func NewJwtManager() JwtManager {
+	return &jwtManager{}
 }
 
-func (j *jwtManager) GenerateUnsignedToken(claims map[string]interface{}) (jwt.Token, error) {
+func (j *jwtManager) GenerateUnsignedToken(claims map[string]any, expiry time.Duration) (jwt.Token, error) {
 	token := jwt.New()
 
 	var currentTime = time.Now()
-	var tokenKeys = map[string]interface{}{
-		"claim":           claims,
+	var tokenKeys = map[string]any{
 		jwt.IssuedAtKey:   currentTime.Unix(),
-		jwt.ExpirationKey: currentTime.Add(j.config.TokenExpiry).Unix(),
+		jwt.ExpirationKey: currentTime.Add(expiry).Unix(),
 	}
 
 	for key, value := range tokenKeys {
@@ -43,33 +36,20 @@ func (j *jwtManager) GenerateUnsignedToken(claims map[string]interface{}) (jwt.T
 			return nil, fmt.Errorf("failed to set claim %s: %w", key, err)
 		}
 	}
-	//if err := j.jwkManager.InitializeJwkSet(keyPrefix); err != nil {
-	//	return "", fmt.Errorf("Error initializing jwk set: %w", err)
-	//}
-	//
-	//privateKey, keyId, err := j.jwkManager.GetAnyPrivateKeyWithKeyId(keyPrefix)
-	//if err != nil {
-	//	return "", fmt.Errorf("failed to get signing key: %w", err)
-	//}
-	//
-	//errSettingKeyId := token.Set("kid", keyId)
-	//if errSettingKeyId != nil {
-	//	return "", fmt.Errorf("failed to set key id in token: %w", errSettingKeyId)
-	//}
-	//
-	//signedToken, err := jwt.Sign(token, jwt.WithKey(jwa.RS256(), privateKey))
-	//if err != nil {
-	//	return "", fmt.Errorf("failed to sign token: %w", err)
-	//}
+	for key, value := range claims {
+		if err := token.Set(key, value); err != nil {
+			return nil, fmt.Errorf("failed to set claim %s: %w", key, err)
+		}
+	}
 	return token, nil
 }
 
-func (j *jwtManager) ParseToken(jwtToken string) (map[string]interface{}, error) {
+func (j *jwtManager) ParseToken(jwtToken string) (map[string]any, error) {
 	parsedToken, err := jws.Parse([]byte(jwtToken))
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse JWT: %w", err)
 	}
-	var payload map[string]interface{}
+	var payload map[string]any
 	payloadInBytes := parsedToken.Payload()
 
 	errUnmarshallingData := json.Unmarshal(payloadInBytes, &payload)
@@ -79,24 +59,24 @@ func (j *jwtManager) ParseToken(jwtToken string) (map[string]interface{}, error)
 	return payload, nil
 }
 
-func (j *jwtManager) VerifyTokenSignatureAndGetClaims(jwtToken string, publicKey rsa.PublicKey) (map[string]interface{}, error) {
-	parsedToken, err := jws.Parse([]byte(jwtToken))
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse JWT: %w", err)
-	}
-
-	var payload map[string]interface{}
-	payloadInBytes := parsedToken.Payload()
-
-	errUnmarshallingData := json.Unmarshal(payloadInBytes, &payload)
-	if errUnmarshallingData != nil {
-		return nil, errUnmarshallingData
-	}
-
-	_, errValidatingToken := jwt.Parse([]byte(jwtToken), jwt.WithKey(jwa.RS256(), publicKey))
-	if errValidatingToken != nil {
-		return nil, fmt.Errorf("failed to verify token signature: %w", errValidatingToken)
-	}
-
-	return payload, nil
-}
+//func (j *jwtManager) VerifyTokenSignatureAndGetClaims(jwtToken string, publicKey rsa.PublicKey) (map[string]any, error) {
+//	parsedToken, err := jws.Parse([]byte(jwtToken))
+//	if err != nil {
+//		return nil, fmt.Errorf("failed to parse JWT: %w", err)
+//	}
+//
+//	var payload map[string]any
+//	payloadInBytes := parsedToken.Payload()
+//
+//	errUnmarshallingData := json.Unmarshal(payloadInBytes, &payload)
+//	if errUnmarshallingData != nil {
+//		return nil, errUnmarshallingData
+//	}
+//
+//	_, errValidatingToken := jwt.Parse([]byte(jwtToken), jwt.WithKey(jwa.RS256(), publicKey))
+//	if errValidatingToken != nil {
+//		return nil, fmt.Errorf("failed to verify token signature: %w", errValidatingToken)
+//	}
+//
+//	return payload, nil
+//}
