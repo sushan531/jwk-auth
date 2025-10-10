@@ -14,15 +14,11 @@ type AuthService interface {
 	GenerateTokenPairWithKeyID(user *model.User, keyID string) (*model.TokenPair, error)
 	RefreshTokensWithKeyID(refreshToken string, username string, keyID string) (*model.TokenPair, error)
 
-	// Legacy methods for backward compatibility
-	GenerateJwt(user *model.User) (string, error)
-	GenerateTokenPair(user *model.User) (*model.TokenPair, error)
-	RefreshTokens(refreshToken string, username string) (*model.TokenPair, error)
-
 	// Common methods
 	GetPublicKeys() ([]*rsa.PublicKey, error)
 	VerifyToken(token string) (*model.User, error)
 	VerifyRefreshToken(token string) (*model.User, error)
+	ExtractKeyIDFromToken(token string) (string, error)
 }
 
 type authService struct {
@@ -35,11 +31,6 @@ func NewAuthService(jwtManager manager.JwtManager, jwkManager manager.JwkManager
 		jwtManager: jwtManager,
 		jwkManager: jwkManager,
 	}
-}
-
-func (a authService) GenerateJwt(user *model.User) (string, error) {
-	var userAsMap = user.ToMap()
-	return a.jwtManager.GenerateToken(userAsMap)
 }
 
 func (a authService) GetPublicKeys() ([]*rsa.PublicKey, error) {
@@ -85,28 +76,6 @@ func (a authService) RefreshTokensWithKeyID(refreshToken string, username string
 
 	// Generate new token pair with the same key ID
 	return a.GenerateTokenPairWithKeyID(user, keyID)
-}
-
-// Legacy methods for backward compatibility
-func (a authService) GenerateTokenPair(user *model.User) (*model.TokenPair, error) {
-	return nil, fmt.Errorf("legacy token generation not supported - use GenerateTokenPairWithKeyID instead")
-}
-
-func (a authService) RefreshTokens(refreshToken string, username string) (*model.TokenPair, error) {
-	// Verify the refresh token (this only validates the token and extracts user_id)
-	userFromToken, err := a.VerifyRefreshToken(refreshToken)
-	if err != nil {
-		return nil, fmt.Errorf("invalid refresh token: %w", err)
-	}
-
-	// Create user object with provided username for new access token
-	user := &model.User{
-		Id:       userFromToken.Id,
-		Username: username,
-	}
-
-	// Generate new token pair
-	return a.GenerateTokenPair(user)
 }
 
 func (a authService) VerifyToken(token string) (*model.User, error) {
@@ -164,4 +133,7 @@ func (a authService) verifyTokenWithType(token string, expectedType string) (*mo
 		Id:       int(userID),
 		Username: username,
 	}, nil
+}
+func (a authService) ExtractKeyIDFromToken(token string) (string, error) {
+	return a.jwtManager.ExtractKeyIDFromToken(token)
 }

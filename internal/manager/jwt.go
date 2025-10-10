@@ -15,11 +15,7 @@ type JwtManager interface {
 	GenerateAccessTokenWithKeyID(claims map[string]interface{}, keyID string) (string, error)
 	GenerateRefreshTokenWithKeyID(claims map[string]interface{}, keyID string) (string, error)
 	VerifyTokenSignatureAndGetClaims(jwtToken string) (map[string]interface{}, error)
-
-	// Legacy methods for backward compatibility
-	GenerateToken(claims map[string]interface{}) (string, error)
-	GenerateAccessToken(claims map[string]interface{}) (string, error)
-	GenerateRefreshToken(claims map[string]interface{}) (string, error)
+	ExtractKeyIDFromToken(jwtToken string) (string, error)
 }
 
 type jwtManager struct {
@@ -30,18 +26,6 @@ func NewJwtManager(jwkManager JwkManager) JwtManager {
 	return &jwtManager{
 		jwkManager: jwkManager,
 	}
-}
-
-func (j jwtManager) GenerateToken(claims map[string]interface{}) (string, error) {
-	return j.generateTokenWithDuration(claims, 24*time.Hour)
-}
-
-func (j jwtManager) GenerateAccessToken(claims map[string]interface{}) (string, error) {
-	return j.generateTokenWithDuration(claims, 15*time.Minute)
-}
-
-func (j jwtManager) GenerateRefreshToken(claims map[string]interface{}) (string, error) {
-	return j.generateTokenWithDuration(claims, 7*24*time.Hour) // 7 days
 }
 
 // Session-based token generation methods
@@ -96,11 +80,6 @@ func (j jwtManager) generateTokenWithKeyIDAndDuration(claims map[string]interfac
 	return string(signedToken), nil
 }
 
-// Legacy methods for backward compatibility
-func (j jwtManager) generateTokenWithDuration(claims map[string]interface{}, duration time.Duration) (string, error) {
-	return "", fmt.Errorf("legacy token generation not supported in session-based mode - use GenerateTokenWithKeyID instead")
-}
-
 func (j jwtManager) VerifyTokenSignatureAndGetClaims(jwtToken string) (map[string]interface{}, error) {
 	parsedToken, err := jws.Parse([]byte(jwtToken))
 	if err != nil {
@@ -127,4 +106,27 @@ func (j jwtManager) VerifyTokenSignatureAndGetClaims(jwtToken string) (map[strin
 	}
 
 	return payload, nil
+}
+
+// ExtractKeyIDFromToken extracts the key ID from a JWT token without full verification
+func (j jwtManager) ExtractKeyIDFromToken(jwtToken string) (string, error) {
+	parsedToken, err := jws.Parse([]byte(jwtToken))
+	if err != nil {
+		return "", fmt.Errorf("failed to parse JWT: %w", err)
+	}
+
+	var payload map[string]interface{}
+	payloadInBytes := parsedToken.Payload()
+
+	err = json.Unmarshal(payloadInBytes, &payload)
+	if err != nil {
+		return "", fmt.Errorf("failed to unmarshal payload: %w", err)
+	}
+
+	kid, ok := payload["kid"].(string)
+	if !ok {
+		return "", fmt.Errorf("key ID not found in token")
+	}
+
+	return kid, nil
 }

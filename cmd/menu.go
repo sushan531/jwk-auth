@@ -64,8 +64,7 @@ func runMenu(cmd *cobra.Command, args []string) {
 		fmt.Println("5. Refresh Tokens")
 		fmt.Println("6. Logout from All Devices")
 		fmt.Println("7. Get User Public Keys")
-		fmt.Println("8. Legacy: Generate Token Pair")
-		fmt.Println("9. Exit")
+		fmt.Println("8. Exit")
 		fmt.Print("\nSelect an option: ")
 
 		choice, errReadingInput := reader.ReadString('\n')
@@ -91,8 +90,6 @@ func runMenu(cmd *cobra.Command, args []string) {
 		case "7":
 			getUserPublicKeysInteractive(jwkManager, reader)
 		case "8":
-			generateTokenPairInteractive(authService, reader)
-		case "9":
 			fmt.Println("Goodbye!")
 			return
 		default:
@@ -286,46 +283,6 @@ func getUserPublicKeysInteractive(jwkManager manager.JwkManager, reader *bufio.R
 	}
 }
 
-func generateTokenPairInteractive(authService service.AuthService, reader *bufio.Reader) {
-	fmt.Println("⚠️  Legacy token generation - consider using 'Login' option instead")
-	fmt.Print("Enter user ID: ")
-	userId, errReadingUserIdInput := reader.ReadString('\n')
-	if errReadingUserIdInput != nil {
-		fmt.Printf("Failed to read input: %v\n", errReadingUserIdInput)
-		return
-	}
-	userIdInInt, errParsingString := strconv.Atoi(strings.TrimSpace(userId))
-	if errParsingString != nil {
-		fmt.Printf("Invalid user ID: %v\n", errParsingString)
-		return
-	}
-
-	fmt.Print("Enter username: ")
-	username, errReadingUserUserNameInput := reader.ReadString('\n')
-	if errReadingUserUserNameInput != nil {
-		fmt.Printf("Failed to read input: %v\n", errReadingUserUserNameInput)
-		return
-	}
-
-	username = strings.TrimSpace(username)
-
-	user := &model.User{
-		Id:       userIdInInt,
-		Username: username,
-	}
-
-	tokenPair, err := authService.GenerateTokenPair(user)
-	if err != nil {
-		fmt.Printf("Error generating token pair: %v\n", err)
-		return
-	}
-
-	fmt.Printf("\nAccess Token: %s\n", tokenPair.AccessToken)
-	fmt.Printf("Refresh Token: %s\n", tokenPair.RefreshToken)
-	fmt.Printf("Token Type: %s\n", tokenPair.TokenType)
-	fmt.Printf("Expires In: %d seconds\n", tokenPair.ExpiresIn)
-}
-
 func refreshTokensInteractive(authService service.AuthService, reader *bufio.Reader) {
 	fmt.Print("Enter refresh token: ")
 	refreshToken, _ := reader.ReadString('\n')
@@ -335,7 +292,14 @@ func refreshTokensInteractive(authService service.AuthService, reader *bufio.Rea
 	username, _ := reader.ReadString('\n')
 	username = strings.TrimSpace(username)
 
-	tokenPair, err := authService.RefreshTokens(refreshToken, username)
+	// Extract key ID from the refresh token
+	keyID, err := authService.ExtractKeyIDFromToken(refreshToken)
+	if err != nil {
+		fmt.Printf("Error extracting key ID from token: %v\n", err)
+		return
+	}
+
+	tokenPair, err := authService.RefreshTokensWithKeyID(refreshToken, username, keyID)
 	if err != nil {
 		fmt.Printf("Error refreshing tokens: %v\n", err)
 		return

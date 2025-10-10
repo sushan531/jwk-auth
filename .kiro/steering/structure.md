@@ -20,8 +20,7 @@ jwk-auth/
 ├── model/                 # Data models and structures
 │   ├── token.go           # Token-related models
 │   ├── user.go            # User model
-│   ├── userauth.go        # User authentication model (legacy)
-│   └── sessionkey.go      # Session key model
+│   └── userkeyset.go      # User keyset model
 ├── service/               # Service layer
 │   └── auth.go            # Authentication service
 ├── main.go                # Application entry point
@@ -72,17 +71,32 @@ jwk-auth/
 - Repository pattern for data access
 - Interface-based repository design
 - Session-based key storage with device type tracking
-- Legacy table support for backward compatibility
+
 - Database schema managed through migration-like table creation
 - Environment-based configuration with sensible defaults
 
 ### Session Management Architecture
+- **Consolidated Key Storage**: All user device keys stored in single database row per user
 - **Single Device Login**: Only one active session per device type per user
 - **Database-First Storage**: Database is primary storage, memory is cache for performance
-- **Session Keys**: Each login creates a unique key tied to user and device
-- **Device Isolation**: Keys are categorized by device type (web, android, ios)
+- **JWX Library Integration**: Uses lestrrat-go/jwx/v3/jwk for proper JWK serialization
+- **Device Isolation**: Keys are categorized by device type within consolidated keyset
 - **Automatic Invalidation**: New login invalidates existing sessions for same device type
-- **Key Lifecycle**: Keys created on login, deleted on logout or new login
-- **Persistent Storage**: All keys stored in PostgreSQL for durability
-- **Memory Caching**: Keys cached in memory for fast access, with database fallback
-- **Cross-Device Support**: Different device types can coexist simultaneously
+- **Efficient Lookups**: Single query retrieves all user keys, reverse lookup cache for key-to-user mapping
+- **Persistent Storage**: All keys stored in PostgreSQL JSONB format for durability
+- **Memory Caching**: Entire user keysets cached for performance, with LRU eviction
+- **Cross-Device Support**: Different device types coexist in same keyset simultaneously
+
+### Consolidated Keyset Model
+```go
+type UserKeyset struct {
+    UserID   int                 `json:"user_id"`
+    KeyData  map[string]string   `json:"key_data"` // deviceType -> serialized jwk.Key JSON
+    Created  time.Time           `json:"created"`
+    Updated  time.Time           `json:"updated"`
+}
+
+// Helper methods for JWK operations
+func (uk *UserKeyset) GetDeviceKey(deviceType string) (jwk.Key, error)
+func (uk *UserKeyset) SetDeviceKey(deviceType string, key jwk.Key) error
+```

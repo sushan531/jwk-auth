@@ -15,17 +15,19 @@ A command-line application for JWT authentication using JSON Web Key Sets (JWKS)
 - **JWK Management**: Generate and manage JSON Web Key Sets with database persistence
 - **Token Verification**: Validate JWT tokens using stored public keys
 - **Multi-User Support**: Per-user session key management
-- **Interactive CLI**: Menu-driven interface for all operations (legacy support)
+- **Interactive CLI**: Menu-driven interface for session management
 
 ### Key Benefits
 
 - **Enhanced Security**: Each session has unique keys, limiting blast radius of compromised tokens
-- **Device Management**: Users can manage active sessions across different devices
-- **Scalability**: Keys created on-demand, not pre-allocated
-- **Token Persistence**: Tokens remain valid across application restarts
-- **RSA-based Signing**: Industry-standard cryptographic security
-- **Flexibility**: Support for both session-based and legacy key management
-- **Database Integration**: PostgreSQL storage for session keys and user authentication data
+- **Efficient Storage**: Consolidated keyset storage reduces database overhead and improves performance
+- **Device Management**: Users can manage active sessions across different devices from single keyset
+- **Scalability**: Keys created on-demand, consolidated storage scales better with user growth
+- **Token Persistence**: Tokens remain valid across application restarts with JSONB storage
+- **RSA-based Signing**: Industry-standard cryptographic security with JWX library integration
+- **Modern Architecture**: Clean consolidated key management following JWK set standards
+- **Database Integration**: PostgreSQL JSONB storage with efficient indexing and queries
+- **Performance Optimization**: Single query per user, reverse lookup caching, LRU memory management
 
 ### Primary Use Cases
 

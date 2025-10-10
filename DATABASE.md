@@ -54,37 +54,50 @@ go run main.go menu
 
 ## Database Schema
 
-The application uses two main tables for key management:
+The application uses a consolidated table for efficient key management:
 
-### Legacy Table (Backward Compatibility)
+### Consolidated Keyset Management
 ```sql
-CREATE TABLE user_auth (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_id INTEGER NOT NULL UNIQUE,
-    key_set TEXT NOT NULL,
+CREATE TABLE user_keysets (
+    user_id INTEGER PRIMARY KEY,
+    key_data JSONB NOT NULL,
     created TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
+
+-- Performance indexes
+CREATE INDEX idx_user_keysets_updated ON user_keysets(updated);
+CREATE INDEX idx_user_keysets_key_data ON user_keysets USING GIN (key_data);
 ```
 
-### Session-Based Key Management (Recommended)
+### Key Data Structure
+The `key_data` JSONB field stores device keys using JWX library serialization:
+```json
+{
+  "web": "serialized_jwk_key_json_from_jwx_library",
+  "android": "serialized_jwk_key_json_from_jwx_library",
+  "ios": "serialized_jwk_key_json_from_jwx_library"
+}
+```
+
+Each device key is serialized using `json.Marshal(jwk.Key)` from the lestrrat-go/jwx/v3/jwk library and deserialized using `jwk.ParseKey()`. This ensures proper JWK format compliance and compatibility with JWT signing operations.
+
+### Schema Migration
+The system automatically migrates from the old `user_session_keys` table to the new consolidated format:
+
+**Old Schema (Deprecated):**
 ```sql
-CREATE TABLE user_session_keys (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_id INTEGER NOT NULL,
-    key_id VARCHAR(255) NOT NULL UNIQUE,
-    key_data TEXT NOT NULL,
-    device_type VARCHAR(50) NOT NULL,
-    created TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
+-- This table is automatically migrated and removed
+user_session_keys:
+- user_id, key_id, device_type, key_data (separate rows per device)
 ```
 
-### Indexes
-- `idx_user_auth_user_id` - Fast lookups by user ID (legacy)
-- `idx_user_session_keys_user_id` - Fast lookups by user ID
-- `idx_user_session_keys_key_id` - Fast lookups by key ID
-- `idx_user_session_keys_device_type` - Fast lookups by device type
+**New Schema (Current):**
+```sql
+-- Consolidated storage with all device keys per user
+user_keysets:
+- user_id (PRIMARY KEY), key_data (JSONB with all device keys)
+```
 
 ## Key Features
 
@@ -96,11 +109,7 @@ CREATE TABLE user_session_keys (
 - **Selective Logout**: Can invalidate specific sessions without affecting other device types
 - **Automatic Cleanup**: Keys are removed when users log out or when new sessions are created
 
-### Legacy Features (Backward Compatibility)
-- **Persistent JWK Sets**: Key sets are stored in PostgreSQL and loaded on startup
-- **Token Continuity**: Tokens issued in previous sessions remain valid
-- **Key Rotation**: Generate new key sets while maintaining database persistence
-- **Multi-User Support**: Each user can have their own key set (user_id column)
+
 
 ## Usage Flow
 
@@ -119,7 +128,7 @@ CREATE TABLE user_session_keys (
 
 3. **User Logout**:
    - Call `DeleteSessionKey(userID, keyID)` to invalidate specific session
-   - Or `DeleteAllUserSessionKeys(userID)` to logout from all devices
+   - Keys are removed from the consolidated keyset
 
 4. **Token Refresh**:
    - Verify refresh token using existing session key
@@ -130,8 +139,3 @@ CREATE TABLE user_session_keys (
    - New login from same device type invalidates previous session
    - Different device types can coexist (user can be logged in on web + android simultaneously)
 
-### Legacy Flow (CLI Applications)
-1. **First Run**: Creates new JWK set and saves to database
-2. **Subsequent Runs**: Loads existing JWK set from database
-3. **Token Verification**: Uses persisted keys to verify tokens from previous sessions
-4. **Key Regeneration**: Option to create new key sets (invalidates old tokens)

@@ -95,17 +95,28 @@ jwkManager := manager.NewJwkManager(userRepo)
 jwtManager := manager.NewJwtManager(jwkManager)
 authService := service.NewAuthService(jwtManager, jwkManager)
 
-// On user login
+// On user login (consolidated keyset approach)
 keyID, err := jwkManager.CreateSessionKey(userID, "web")
-tokenPair, err := authService.GenerateTokenPair(user)
+tokenPair, err := authService.GenerateTokenPairWithKeyID(user, keyID)
 
-// On user logout
+// On user logout (removes device key from consolidated keyset)
 err := jwkManager.DeleteSessionKey(userID, keyID)
 
-// On token verification
+// On token verification (searches consolidated keysets)
 user, err := authService.VerifyToken(accessToken)
+
+// Key lookup across all users (efficient reverse lookup)
+keyset, err := userRepo.FindKeysetByKeyID(keyID)
 ```
 
 ### Database Tables
-- `user_session_keys`: Session-based key storage (recommended)
-- `user_auth`: Legacy key set storage (backward compatibility)
+- `user_keysets`: Consolidated keyset storage with JSONB support
+  - `user_id` (PRIMARY KEY): User identifier
+  - `key_data` (JSONB): Device keys stored as `{"web": "jwk_json", "android": "jwk_json"}`
+  - `created`, `updated`: Timestamps for tracking keyset lifecycle
+
+### JWX Library Integration
+- Uses `jwk.Import(privateKey)` to create JWK from RSA keys
+- Uses `json.Marshal(jwkKey)` to serialize JWK for database storage
+- Uses `jwk.ParseKey([]byte(keyData))` to deserialize JWK from database
+- Uses `jwk.Export(jwkKey, &rsaPrivateKey)` to extract RSA key for JWT signing

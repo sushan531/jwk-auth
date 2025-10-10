@@ -9,6 +9,7 @@ import (
 	"github.com/sushan531/jwk-auth/internal/database"
 	"github.com/sushan531/jwk-auth/internal/manager"
 	"github.com/sushan531/jwk-auth/internal/repository"
+	"github.com/sushan531/jwk-auth/model"
 )
 
 func main() {
@@ -33,7 +34,7 @@ func main() {
 
 	userID := 1
 
-	fmt.Println("=== Single Device Login Test ===")
+	fmt.Println("=== Single Device Login Test with Consolidated Keysets ===")
 
 	// Test 1: Create first web session
 	fmt.Println("\n1. Creating first web session...")
@@ -43,9 +44,17 @@ func main() {
 	}
 	fmt.Printf("Created web session 1: %s\n", webKey1)
 
-	// Check active sessions
+	// Check active sessions and keyset structure
 	sessions, _ := jwkManager.GetSessionKeys(userID)
 	fmt.Printf("Active sessions: %v\n", sessions)
+
+	// Show consolidated keyset
+	keyset, err := userRepo.GetUserKeyset(userID)
+	if err != nil {
+		log.Printf("Failed to get keyset: %v", err)
+	} else {
+		fmt.Printf("Keyset contains %d device keys: %v\n", len(keyset.KeyData), getDeviceTypes(keyset))
+	}
 
 	// Wait a moment to ensure different timestamps
 	time.Sleep(1 * time.Second)
@@ -58,9 +67,13 @@ func main() {
 	}
 	fmt.Printf("Created web session 2: %s\n", webKey2)
 
-	// Check active sessions
+	// Check active sessions and keyset structure
 	sessions, _ = jwkManager.GetSessionKeys(userID)
 	fmt.Printf("Active sessions after second web login: %v\n", sessions)
+
+	// Show that keyset still has only one web key (replaced, not added)
+	keyset, _ = userRepo.GetUserKeyset(userID)
+	fmt.Printf("Keyset contains %d device keys: %v\n", len(keyset.KeyData), getDeviceTypes(keyset))
 
 	// Test 3: Create android session (should coexist with web)
 	fmt.Println("\n3. Creating android session (should coexist with web)...")
@@ -70,9 +83,13 @@ func main() {
 	}
 	fmt.Printf("Created android session: %s\n", androidKey)
 
-	// Check active sessions
+	// Check active sessions and keyset structure
 	sessions, _ = jwkManager.GetSessionKeys(userID)
 	fmt.Printf("Active sessions after android login: %v\n", sessions)
+
+	// Show that keyset now has both web and android keys
+	keyset, _ = userRepo.GetUserKeyset(userID)
+	fmt.Printf("Keyset contains %d device keys: %v\n", len(keyset.KeyData), getDeviceTypes(keyset))
 
 	// Test 4: Create another web session (should invalidate previous web, keep android)
 	time.Sleep(1 * time.Second)
@@ -83,9 +100,13 @@ func main() {
 	}
 	fmt.Printf("Created web session 3: %s\n", webKey3)
 
-	// Check final active sessions
+	// Check final active sessions and keyset structure
 	sessions, _ = jwkManager.GetSessionKeys(userID)
 	fmt.Printf("Final active sessions: %v\n", sessions)
+
+	// Show final keyset state (web key replaced again, android key preserved)
+	keyset, _ = userRepo.GetUserKeyset(userID)
+	fmt.Printf("Final keyset contains %d device keys: %v\n", len(keyset.KeyData), getDeviceTypes(keyset))
 
 	// Verify we can't use the old web keys
 	fmt.Println("\n5. Testing old key access...")
@@ -119,4 +140,13 @@ func main() {
 	}
 
 	fmt.Println("\n=== Single Device Login Test Completed ===")
+}
+
+// Helper function to extract device types from keyset
+func getDeviceTypes(keyset *model.UserKeyset) []string {
+	var deviceTypes []string
+	for deviceType := range keyset.KeyData {
+		deviceTypes = append(deviceTypes, deviceType)
+	}
+	return deviceTypes
 }
