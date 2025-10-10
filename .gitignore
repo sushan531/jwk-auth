@@ -1,0 +1,58 @@
+# Binaries for programs and plugins
+*.exe
+*.dll
+*.so
+*.dylib
+*.wasm
+*.o
+*.ko
+
+# Object files, libraries
+*.obj
+*.a
+*.lib
+
+# Test binary, generated with `go test -c`
+*.test
+
+# Compiled Go packages, may or may not be committed to source control
+*.out
+
+# Dependency directories (these are often handled by Go modules, but can be explicitly ignored)
+vendor/
+
+# Go module cache (if not using `vendor/`)
+# This is usually located in your user's Go cache directory, but can be configured
+# to be project-local using `GOMODCACHE` environment variable.
+# If you are explicitly setting a project-local GOMODCACHE, you might want to ignore it here.
+# For example, if GOMODCACHE is set to `.gomodcache` in your project root:
+# .gomodcache/
+
+# Log files
+*.log
+
+# Editor-specific files
+.idea/ # IntelliJ IDEA
+.vscode/ # VS Code
+.DS_Store # macOS
+*~ # Emacs
+*.swp # Vim
+
+# Environment variables and sensitive data
+.env
+.env.*
+
+# Build output and temporary files
+tmp/
+build/
+dist/
+
+# Coverage files
+*.prof
+*.cov
+
+# Other common temporary files
+*.bak
+*.orig
+
+.idea
