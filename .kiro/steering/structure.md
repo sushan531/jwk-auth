@@ -20,7 +20,8 @@ jwk-auth/
 ├── model/                 # Data models and structures
 │   ├── token.go           # Token-related models
 │   ├── user.go            # User model
-│   └── userauth.go        # User authentication model
+│   ├── userauth.go        # User authentication model (legacy)
+│   └── sessionkey.go      # Session key model
 ├── service/               # Service layer
 │   └── auth.go            # Authentication service
 ├── main.go                # Application entry point
@@ -70,5 +71,18 @@ jwk-auth/
 ### Database Integration
 - Repository pattern for data access
 - Interface-based repository design
+- Session-based key storage with device type tracking
+- Legacy table support for backward compatibility
 - Database schema managed through migration-like table creation
 - Environment-based configuration with sensible defaults
+
+### Session Management Architecture
+- **Single Device Login**: Only one active session per device type per user
+- **Database-First Storage**: Database is primary storage, memory is cache for performance
+- **Session Keys**: Each login creates a unique key tied to user and device
+- **Device Isolation**: Keys are categorized by device type (web, android, ios)
+- **Automatic Invalidation**: New login invalidates existing sessions for same device type
+- **Key Lifecycle**: Keys created on login, deleted on logout or new login
+- **Persistent Storage**: All keys stored in PostgreSQL for durability
+- **Memory Caching**: Keys cached in memory for fast access, with database fallback
+- **Cross-Device Support**: Different device types can coexist simultaneously

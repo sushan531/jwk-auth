@@ -11,10 +11,15 @@ import (
 )
 
 type JwtManager interface {
+	GenerateTokenWithKeyID(claims map[string]interface{}, keyID string) (string, error)
+	GenerateAccessTokenWithKeyID(claims map[string]interface{}, keyID string) (string, error)
+	GenerateRefreshTokenWithKeyID(claims map[string]interface{}, keyID string) (string, error)
+	VerifyTokenSignatureAndGetClaims(jwtToken string) (map[string]interface{}, error)
+
+	// Legacy methods for backward compatibility
 	GenerateToken(claims map[string]interface{}) (string, error)
 	GenerateAccessToken(claims map[string]interface{}) (string, error)
 	GenerateRefreshToken(claims map[string]interface{}) (string, error)
-	VerifyTokenSignatureAndGetClaims(jwtToken string) (map[string]interface{}, error)
 }
 
 type jwtManager struct {
@@ -39,10 +44,22 @@ func (j jwtManager) GenerateRefreshToken(claims map[string]interface{}) (string,
 	return j.generateTokenWithDuration(claims, 7*24*time.Hour) // 7 days
 }
 
-func (j jwtManager) generateTokenWithDuration(claims map[string]interface{}, duration time.Duration) (string, error) {
-	token := jwt.New()
+// Session-based token generation methods
+func (j jwtManager) GenerateTokenWithKeyID(claims map[string]interface{}, keyID string) (string, error) {
+	return j.generateTokenWithKeyIDAndDuration(claims, keyID, 24*time.Hour)
+}
 
-	var currentTime = time.Now()
+func (j jwtManager) GenerateAccessTokenWithKeyID(claims map[string]interface{}, keyID string) (string, error) {
+	return j.generateTokenWithKeyIDAndDuration(claims, keyID, 15*time.Minute)
+}
+
+func (j jwtManager) GenerateRefreshTokenWithKeyID(claims map[string]interface{}, keyID string) (string, error) {
+	return j.generateTokenWithKeyIDAndDuration(claims, keyID, 7*24*time.Hour) // 7 days
+}
+
+func (j jwtManager) generateTokenWithKeyIDAndDuration(claims map[string]interface{}, keyID string, duration time.Duration) (string, error) {
+	token := jwt.New()
+	currentTime := time.Now()
 
 	// Set all claims directly on the token
 	for key, value := range claims {
@@ -60,13 +77,15 @@ func (j jwtManager) generateTokenWithDuration(claims map[string]interface{}, dur
 		return "", fmt.Errorf("failed to set exp: %w", err)
 	}
 
-	privateKey, keyId, err := j.jwkManager.GetAnyPrivateKeyWithKeyId()
-	if err != nil {
-		return "", fmt.Errorf("failed to get signing key: %w", err)
+	// Set the key ID
+	if err := token.Set("kid", keyID); err != nil {
+		return "", fmt.Errorf("failed to set key id in token: %w", err)
 	}
 
-	if err := token.Set("kid", keyId); err != nil {
-		return "", fmt.Errorf("failed to set key id in token: %w", err)
+	// Get the private key for signing
+	privateKey, err := j.jwkManager.GetPrivateKeyByID(keyID)
+	if err != nil {
+		return "", fmt.Errorf("failed to get signing key: %w", err)
 	}
 
 	signedToken, err := jwt.Sign(token, jwt.WithKey(jwa.RS256(), privateKey))
@@ -75,6 +94,11 @@ func (j jwtManager) generateTokenWithDuration(claims map[string]interface{}, dur
 	}
 
 	return string(signedToken), nil
+}
+
+// Legacy methods for backward compatibility
+func (j jwtManager) generateTokenWithDuration(claims map[string]interface{}, duration time.Duration) (string, error) {
+	return "", fmt.Errorf("legacy token generation not supported in session-based mode - use GenerateTokenWithKeyID instead")
 }
 
 func (j jwtManager) VerifyTokenSignatureAndGetClaims(jwtToken string) (map[string]interface{}, error) {

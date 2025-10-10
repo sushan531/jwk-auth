@@ -10,9 +10,16 @@ import (
 )
 
 type AuthService interface {
+	// Session-based methods
+	GenerateTokenPairWithKeyID(user *model.User, keyID string) (*model.TokenPair, error)
+	RefreshTokensWithKeyID(refreshToken string, username string, keyID string) (*model.TokenPair, error)
+
+	// Legacy methods for backward compatibility
 	GenerateJwt(user *model.User) (string, error)
 	GenerateTokenPair(user *model.User) (*model.TokenPair, error)
 	RefreshTokens(refreshToken string, username string) (*model.TokenPair, error)
+
+	// Common methods
 	GetPublicKeys() ([]*rsa.PublicKey, error)
 	VerifyToken(token string) (*model.User, error)
 	VerifyRefreshToken(token string) (*model.User, error)
@@ -39,17 +46,18 @@ func (a authService) GetPublicKeys() ([]*rsa.PublicKey, error) {
 	return a.jwkManager.GetPublicKeys()
 }
 
-func (a authService) GenerateTokenPair(user *model.User) (*model.TokenPair, error) {
+// Session-based token generation
+func (a authService) GenerateTokenPairWithKeyID(user *model.User, keyID string) (*model.TokenPair, error) {
 	// Generate access token claims (includes username)
 	accessClaims := model.NewTokenClaims(user, "access", 15*time.Minute)
-	accessToken, err := a.jwtManager.GenerateAccessToken(accessClaims.ToMap())
+	accessToken, err := a.jwtManager.GenerateAccessTokenWithKeyID(accessClaims.ToMap(), keyID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate access token: %w", err)
 	}
 
 	// Generate refresh token claims (only user_id)
 	refreshClaims := model.NewRefreshTokenClaims(user.Id, 7*24*time.Hour)
-	refreshToken, err := a.jwtManager.GenerateRefreshToken(refreshClaims.ToMap())
+	refreshToken, err := a.jwtManager.GenerateRefreshTokenWithKeyID(refreshClaims.ToMap(), keyID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate refresh token: %w", err)
 	}
@@ -60,6 +68,28 @@ func (a authService) GenerateTokenPair(user *model.User) (*model.TokenPair, erro
 		TokenType:    "Bearer",
 		ExpiresIn:    15 * 60, // 15 minutes in seconds
 	}, nil
+}
+
+func (a authService) RefreshTokensWithKeyID(refreshToken string, username string, keyID string) (*model.TokenPair, error) {
+	// Verify the refresh token (this only validates the token and extracts user_id)
+	userFromToken, err := a.VerifyRefreshToken(refreshToken)
+	if err != nil {
+		return nil, fmt.Errorf("invalid refresh token: %w", err)
+	}
+
+	// Create user object with provided username for new access token
+	user := &model.User{
+		Id:       userFromToken.Id,
+		Username: username,
+	}
+
+	// Generate new token pair with the same key ID
+	return a.GenerateTokenPairWithKeyID(user, keyID)
+}
+
+// Legacy methods for backward compatibility
+func (a authService) GenerateTokenPair(user *model.User) (*model.TokenPair, error) {
+	return nil, fmt.Errorf("legacy token generation not supported - use GenerateTokenPairWithKeyID instead")
 }
 
 func (a authService) RefreshTokens(refreshToken string, username string) (*model.TokenPair, error) {

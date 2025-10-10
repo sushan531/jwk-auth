@@ -40,6 +40,7 @@ func CreateTables(db *sql.DB) error {
 	query := `
 	CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 	
+	-- Legacy table for backward compatibility
 	CREATE TABLE IF NOT EXISTS user_auth (
 		id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
 		user_id INTEGER NOT NULL UNIQUE,
@@ -48,7 +49,22 @@ func CreateTables(db *sql.DB) error {
 		updated TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 	);
 
+	-- New session-based key management table
+	CREATE TABLE IF NOT EXISTS user_session_keys (
+		id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+		user_id INTEGER NOT NULL,
+		key_id VARCHAR(255) NOT NULL UNIQUE,
+		key_data TEXT NOT NULL,
+		device_type VARCHAR(50) NOT NULL,
+		created TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+		updated TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+	);
+
+	-- Indexes for performance
 	CREATE INDEX IF NOT EXISTS idx_user_auth_user_id ON user_auth(user_id);
+	CREATE INDEX IF NOT EXISTS idx_user_session_keys_user_id ON user_session_keys(user_id);
+	CREATE INDEX IF NOT EXISTS idx_user_session_keys_key_id ON user_session_keys(key_id);
+	CREATE INDEX IF NOT EXISTS idx_user_session_keys_device_type ON user_session_keys(device_type);
 	`
 
 	_, err := db.Exec(query)
