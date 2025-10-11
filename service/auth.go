@@ -3,8 +3,10 @@ package service
 import (
 	"crypto/rsa"
 	"fmt"
+	"strings"
 	"time"
 
+	"github.com/sushan531/jwk-auth/internal/config"
 	"github.com/sushan531/jwk-auth/internal/manager"
 	"github.com/sushan531/jwk-auth/model"
 )
@@ -24,12 +26,14 @@ type AuthService interface {
 type authService struct {
 	jwtManager manager.JwtManager
 	jwkManager manager.JwkManager
+	config     *config.Config
 }
 
-func NewAuthService(jwtManager manager.JwtManager, jwkManager manager.JwkManager) AuthService {
+func NewAuthService(jwtManager manager.JwtManager, jwkManager manager.JwkManager, cfg *config.Config) AuthService {
 	return &authService{
 		jwtManager: jwtManager,
 		jwkManager: jwkManager,
+		config:     cfg,
 	}
 }
 
@@ -40,14 +44,14 @@ func (a authService) GetPublicKeys() ([]*rsa.PublicKey, error) {
 // Session-based token generation
 func (a authService) GenerateTokenPairWithKeyID(user *model.User, keyID string) (*model.TokenPair, error) {
 	// Generate access token claims (includes username)
-	accessClaims := model.NewTokenClaims(user, "access", 15*time.Minute)
+	accessClaims := model.NewTokenClaims(user, "access", a.config.JWT.AccessTokenDuration)
 	accessToken, err := a.jwtManager.GenerateAccessTokenWithKeyID(accessClaims.ToMap(), keyID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate access token: %w", err)
 	}
 
 	// Generate refresh token claims (only user_id)
-	refreshClaims := model.NewRefreshTokenClaims(user.Id, 7*24*time.Hour)
+	refreshClaims := model.NewRefreshTokenClaims(user.Id, a.config.JWT.RefreshTokenDuration)
 	refreshToken, err := a.jwtManager.GenerateRefreshTokenWithKeyID(refreshClaims.ToMap(), keyID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate refresh token: %w", err)
@@ -57,7 +61,7 @@ func (a authService) GenerateTokenPairWithKeyID(user *model.User, keyID string) 
 		AccessToken:  accessToken,
 		RefreshToken: refreshToken,
 		TokenType:    "Bearer",
-		ExpiresIn:    15 * 60, // 15 minutes in seconds
+		ExpiresIn:    int64(a.config.JWT.AccessTokenDuration.Seconds()), // Duration in seconds
 	}, nil
 }
 
@@ -68,14 +72,26 @@ func (a authService) RefreshTokensWithKeyID(refreshToken string, username string
 		return nil, fmt.Errorf("invalid refresh token: %w", err)
 	}
 
+	// Extract device type from keyID (format: deviceType-userID-timestamp)
+	deviceType, err := a.extractDeviceTypeFromKeyID(keyID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to extract device type from keyID: %w", err)
+	}
+
+	// Create a new session key for the same device type (this will replace the old key)
+	newKeyID, err := a.jwkManager.CreateSessionKey(userFromToken.Id, deviceType)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create new session key: %w", err)
+	}
+
 	// Create user object with provided username for new access token
 	user := &model.User{
 		Id:       userFromToken.Id,
 		Username: username,
 	}
 
-	// Generate new token pair with the same key ID
-	return a.GenerateTokenPairWithKeyID(user, keyID)
+	// Generate new token pair with the new key ID
+	return a.GenerateTokenPairWithKeyID(user, newKeyID)
 }
 
 func (a authService) VerifyToken(token string) (*model.User, error) {
@@ -136,4 +152,17 @@ func (a authService) verifyTokenWithType(token string, expectedType string) (*mo
 }
 func (a authService) ExtractKeyIDFromToken(token string) (string, error) {
 	return a.jwtManager.ExtractKeyIDFromToken(token)
+}
+
+// extractDeviceTypeFromKeyID extracts the device type from a keyID
+// KeyID format: deviceType-userID-timestamp
+func (a authService) extractDeviceTypeFromKeyID(keyID string) (string, error) {
+	// Split the keyID by '-' to extract components
+	parts := strings.Split(keyID, "-")
+	if len(parts) < 3 {
+		return "", fmt.Errorf("invalid keyID format: expected deviceType-userID-timestamp, got %s", keyID)
+	}
+
+	// The device type is the first part
+	return parts[0], nil
 }

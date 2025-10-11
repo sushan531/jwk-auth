@@ -68,13 +68,20 @@ go mod vendor
 
 ## Environment Configuration
 
-The application uses environment variables for database configuration:
+The application uses environment variables for configuration:
+
+### Database Configuration
 - `DB_HOST` (default: localhost)
 - `DB_PORT` (default: 5432)
 - `DB_USER` (default: myuser)
 - `DB_PASSWORD` (default: mypassword)
 - `DB_NAME` (default: mydb)
 - `DB_SSLMODE` (default: disable)
+
+### JWT Configuration
+- `JWT_ACCESS_TOKEN_DURATION` (default: 15m) - Access token expiration time
+- `JWT_REFRESH_TOKEN_DURATION` (default: 168h) - Refresh token expiration time (7 days)
+- `JWT_RSA_KEY_SIZE` (default: 2048) - RSA key size in bits
 ## 
 Session-Based Key Management
 

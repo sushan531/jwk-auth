@@ -3,7 +3,6 @@ module github.com/sushan531/jwk-auth
 go 1.25.1
 
 require (
-	github.com/google/uuid v1.6.0
 	github.com/lestrrat-go/jwx/v3 v3.0.11
 	github.com/lib/pq v1.10.9
 	github.com/spf13/cobra v1.10.1

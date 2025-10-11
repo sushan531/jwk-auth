@@ -46,13 +46,13 @@ func runMenu(cmd *cobra.Command, args []string) {
 	// Initialize repository
 	userRepo := repository.NewUserAuthRepository(db)
 
-	// Initialize JWK manager with database support
-	jwkManager := manager.NewJwkManager(userRepo)
+	// Initialize JWK manager with database support and configuration
+	jwkManager := manager.NewJwkManager(userRepo, cfg)
 
 	fmt.Println("Session-based JWT Authentication System initialized")
 
 	var jwtManager = manager.NewJwtManager(jwkManager)
-	var authService = service.NewAuthService(jwtManager, jwkManager)
+	var authService = service.NewAuthService(jwtManager, jwkManager, cfg)
 
 	reader := bufio.NewReader(os.Stdin)
 	for {
