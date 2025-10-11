@@ -43,15 +43,14 @@ func CreateTables(db *sql.DB) error {
 	-- Consolidated user keysets table
 	CREATE TABLE IF NOT EXISTS user_keysets (
 		user_id INTEGER PRIMARY KEY,
-		key_data JSONB NOT NULL,
+		key_data TEXT NOT NULL,
+		encryption_key TEXT NOT NULL,
 		created TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
 		updated TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 	);
 
 	-- Indexes for performance
 	CREATE INDEX IF NOT EXISTS idx_user_keysets_updated ON user_keysets(updated);
-	-- GIN index for JSON queries (PostgreSQL specific)
-	CREATE INDEX IF NOT EXISTS idx_user_keysets_key_data ON user_keysets USING GIN (key_data);
 	`
 
 	_, err := db.Exec(query)
@@ -59,18 +58,5 @@ func CreateTables(db *sql.DB) error {
 		return fmt.Errorf("failed to create tables: %w", err)
 	}
 
-	return nil
-}
-
-// DropLegacyTables removes the old user_session_keys table after migration is complete
-func DropLegacyTables(db *sql.DB) error {
-	query := `DROP TABLE IF EXISTS user_session_keys CASCADE;`
-
-	_, err := db.Exec(query)
-	if err != nil {
-		return fmt.Errorf("failed to drop legacy tables: %w", err)
-	}
-
-	fmt.Println("Successfully dropped legacy user_session_keys table")
 	return nil
 }
