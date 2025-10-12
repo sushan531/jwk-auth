@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sushan531/jwk-auth/internal/config"
-	"github.com/sushan531/jwk-auth/internal/manager"
+	"github.com/sushan531/jwk-auth/core/config"
+	"github.com/sushan531/jwk-auth/core/manager"
 )
 
 // TokenPair represents an access/refresh token pair

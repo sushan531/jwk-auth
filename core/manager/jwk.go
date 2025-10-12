@@ -7,8 +7,8 @@ import (
 	"time"
 
 	"github.com/lestrrat-go/jwx/v3/jwk"
-	"github.com/sushan531/jwk-auth/internal/config"
-	"github.com/sushan531/jwk-auth/internal/repository"
+	"github.com/sushan531/jwk-auth/core/config"
+	"github.com/sushan531/jwk-auth/core/repository"
 )
 
 type JwkManager interface {

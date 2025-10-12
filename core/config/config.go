@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/sushan531/jwk-auth/internal/database"
+	"github.com/sushan531/jwk-auth/core/database"
 )
 
 type Config struct {

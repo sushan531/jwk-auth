@@ -10,10 +10,10 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/sushan531/jwk-auth/internal/config"
-	"github.com/sushan531/jwk-auth/internal/database"
-	"github.com/sushan531/jwk-auth/internal/manager"
-	"github.com/sushan531/jwk-auth/internal/repository"
+	"github.com/sushan531/jwk-auth/core/config"
+	"github.com/sushan531/jwk-auth/core/database"
+	"github.com/sushan531/jwk-auth/core/manager"
+	"github.com/sushan531/jwk-auth/core/repository"
 	"github.com/sushan531/jwk-auth/service"
 )
 
