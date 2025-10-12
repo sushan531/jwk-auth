@@ -9,11 +9,11 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+
 	"github.com/sushan531/jwk-auth/internal/config"
 	"github.com/sushan531/jwk-auth/internal/database"
 	"github.com/sushan531/jwk-auth/internal/manager"
 	"github.com/sushan531/jwk-auth/internal/repository"
-	"github.com/sushan531/jwk-auth/model"
 	"github.com/sushan531/jwk-auth/service"
 )
 
@@ -98,7 +98,7 @@ func runMenu(cmd *cobra.Command, args []string) {
 	}
 }
 
-// loginInteractive simulates user login by creating a session key and generating tokens
+// loginInteractive simulates user login by creating a session key and generating tokens with flexible claims
 func loginInteractive(jwkManager manager.JwkManager, authService service.AuthService, reader *bufio.Reader) {
 	fmt.Print("Enter user ID: ")
 	userIdStr, _ := reader.ReadString('\n')
@@ -107,10 +107,6 @@ func loginInteractive(jwkManager manager.JwkManager, authService service.AuthSer
 		fmt.Printf("Invalid user ID: %v\n", err)
 		return
 	}
-
-	fmt.Print("Enter username: ")
-	username, _ := reader.ReadString('\n')
-	username = strings.TrimSpace(username)
 
 	fmt.Print("Enter device type (web/android/ios): ")
 	deviceType, _ := reader.ReadString('\n')
@@ -131,15 +127,46 @@ func loginInteractive(jwkManager manager.JwkManager, authService service.AuthSer
 
 	fmt.Printf("✓ Session key created: %s\n", keyID)
 
-	// Generate token pair using the session key
-	user := &model.User{Id: userID, Username: username}
-	tokenPair, err := authService.GenerateTokenPairWithKeyID(user, keyID)
+	// Create flexible claims map
+	claims := map[string]interface{}{
+		"user_id": userID,
+	}
+
+	// Collect additional claims
+	fmt.Println("\nEnter claims (press Enter with empty key to finish):")
+	for {
+		fmt.Print("Claim key (or Enter to finish): ")
+		key, _ := reader.ReadString('\n')
+		key = strings.TrimSpace(key)
+		if key == "" {
+			break
+		}
+
+		fmt.Printf("Value for '%s': ", key)
+		value, _ := reader.ReadString('\n')
+		value = strings.TrimSpace(value)
+
+		// Try to parse as number, otherwise keep as string
+		if intVal, err := strconv.Atoi(value); err == nil {
+			claims[key] = intVal
+		} else if floatVal, err := strconv.ParseFloat(value, 64); err == nil {
+			claims[key] = floatVal
+		} else if boolVal, err := strconv.ParseBool(value); err == nil {
+			claims[key] = boolVal
+		} else {
+			claims[key] = value
+		}
+	}
+
+	// Generate token pair using flexible claims
+	tokenPair, err := authService.GenerateTokenPairWithKeyID(claims, keyID)
 	if err != nil {
 		fmt.Printf("Error generating tokens: %v\n", err)
 		return
 	}
 
 	fmt.Printf("✓ Login successful!\n")
+	fmt.Printf("Claims used: %+v\n", claims)
 	fmt.Printf("Access Token: %s\n", tokenPair.AccessToken)
 	fmt.Printf("Refresh Token: %s\n", tokenPair.RefreshToken)
 	fmt.Printf("Device: %s\n", deviceType)
@@ -288,10 +315,6 @@ func refreshTokensInteractive(authService service.AuthService, reader *bufio.Rea
 	refreshToken, _ := reader.ReadString('\n')
 	refreshToken = strings.TrimSpace(refreshToken)
 
-	fmt.Print("Enter username for new access token: ")
-	username, _ := reader.ReadString('\n')
-	username = strings.TrimSpace(username)
-
 	// Extract key ID from the refresh token
 	keyID, err := authService.ExtractKeyIDFromToken(refreshToken)
 	if err != nil {
@@ -299,13 +322,44 @@ func refreshTokensInteractive(authService service.AuthService, reader *bufio.Rea
 		return
 	}
 
-	tokenPair, err := authService.RefreshTokensWithKeyID(refreshToken, username, keyID)
+	// Create new claims map
+	newClaims := make(map[string]interface{})
+
+	// Collect additional claims for the new token
+	fmt.Println("\nEnter new/updated claims for the refreshed token (press Enter with empty key to finish):")
+	for {
+		fmt.Print("Claim key (or Enter to finish): ")
+		key, _ := reader.ReadString('\n')
+		key = strings.TrimSpace(key)
+		if key == "" {
+			break
+		}
+
+		fmt.Printf("Value for '%s': ", key)
+		value, _ := reader.ReadString('\n')
+		value = strings.TrimSpace(value)
+
+		// Try to parse as number, otherwise keep as string
+		if intVal, err := strconv.Atoi(value); err == nil {
+			newClaims[key] = intVal
+		} else if floatVal, err := strconv.ParseFloat(value, 64); err == nil {
+			newClaims[key] = floatVal
+		} else if boolVal, err := strconv.ParseBool(value); err == nil {
+			newClaims[key] = boolVal
+		} else {
+			newClaims[key] = value
+		}
+	}
+
+	tokenPair, err := authService.RefreshTokensWithKeyID(refreshToken, newClaims, keyID)
 	if err != nil {
 		fmt.Printf("Error refreshing tokens: %v\n", err)
 		return
 	}
 
-	fmt.Printf("\nNew Access Token: %s\n", tokenPair.AccessToken)
+	fmt.Printf("\n✓ Tokens refreshed!\n")
+	fmt.Printf("New claims added/updated: %+v\n", newClaims)
+	fmt.Printf("New Access Token: %s\n", tokenPair.AccessToken)
 	fmt.Printf("New Refresh Token: %s\n", tokenPair.RefreshToken)
 	fmt.Printf("Token Type: %s\n", tokenPair.TokenType)
 	fmt.Printf("Expires In: %d seconds\n", tokenPair.ExpiresIn)
@@ -316,13 +370,13 @@ func verifyTokenInteractive(authService service.AuthService, reader *bufio.Reade
 	token, _ := reader.ReadString('\n')
 	token = strings.TrimSpace(token)
 
-	user, err := authService.VerifyToken(token)
+	claims, err := authService.VerifyToken(token)
 	if err != nil {
 		fmt.Printf("Error verifying token: %v\n", err)
 		return
 	}
 
-	fmt.Printf("\nToken is valid! User: %+v\n", user)
+	fmt.Printf("\nToken is valid! Claims: %+v\n", claims)
 }
 
 func verifyRefreshTokenInteractive(authService service.AuthService, reader *bufio.Reader) {
@@ -330,11 +384,11 @@ func verifyRefreshTokenInteractive(authService service.AuthService, reader *bufi
 	token, _ := reader.ReadString('\n')
 	token = strings.TrimSpace(token)
 
-	user, err := authService.VerifyRefreshToken(token)
+	claims, err := authService.VerifyRefreshToken(token)
 	if err != nil {
 		fmt.Printf("Error verifying refresh token: %v\n", err)
 		return
 	}
 
-	fmt.Printf("\nRefresh token is valid! User: %+v\n", user)
+	fmt.Printf("\nRefresh token is valid! Claims: %+v\n", claims)
 }

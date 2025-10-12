@@ -9,7 +9,6 @@ import (
 	"github.com/lestrrat-go/jwx/v3/jwk"
 	"github.com/sushan531/jwk-auth/internal/config"
 	"github.com/sushan531/jwk-auth/internal/repository"
-	"github.com/sushan531/jwk-auth/model"
 )
 
 type JwkManager interface {
@@ -32,7 +31,7 @@ type jwkManager struct {
 	userRepo      repository.UserAuthRepository
 	config        *config.Config
 	encryptionMgr EncryptionManager
-	userKeysets   map[int]*model.UserKeyset
+	userKeysets   map[int]*repository.UserKeyset
 	parsedJWKS    map[int]jwk.Set // JWKS-specific cache for complete JWKS per user
 	parsedKeys    map[string]jwk.Key
 	keyToUser     map[string]int
@@ -43,7 +42,7 @@ func NewJwkManager(userRepo repository.UserAuthRepository, cfg *config.Config) J
 		userRepo:      userRepo,
 		config:        cfg,
 		encryptionMgr: NewEncryptionManager(),
-		userKeysets:   make(map[int]*model.UserKeyset),
+		userKeysets:   make(map[int]*repository.UserKeyset),
 		parsedJWKS:    make(map[int]jwk.Set),
 		parsedKeys:    make(map[string]jwk.Key),
 		keyToUser:     make(map[string]int),
@@ -51,7 +50,7 @@ func NewJwkManager(userRepo repository.UserAuthRepository, cfg *config.Config) J
 }
 
 // decryptKeyset decrypts the keyset data and returns a copy with decrypted KeyData
-func (j *jwkManager) decryptKeyset(keyset *model.UserKeyset) (*model.UserKeyset, error) {
+func (j *jwkManager) decryptKeyset(keyset *repository.UserKeyset) (*repository.UserKeyset, error) {
 	if keyset.KeyData == "" {
 		// Return a copy with empty KeyData
 		decryptedKeyset := *keyset
@@ -94,7 +93,7 @@ func (j *jwkManager) encryptKeyset(keysetData string, existingKey string) (encry
 
 // findKeysetByKeyID searches through all user keysets to find the one containing the specified key ID
 // This method handles decryption internally
-func (j *jwkManager) findKeysetByKeyID(keyID string) (*model.UserKeyset, error) {
+func (j *jwkManager) findKeysetByKeyID(keyID string) (*repository.UserKeyset, error) {
 	// Get all encrypted user keysets
 	allEncryptedKeysets, err := j.userRepo.GetAllUserKeysets()
 	if err != nil {
@@ -159,10 +158,10 @@ func (j *jwkManager) CreateSessionKey(userID int, deviceType string) (string, er
 
 	// Load user's existing JWKS using GetUserKeyset() and GetJWKS()
 	encryptedKeyset, err := j.userRepo.GetUserKeyset(userID)
-	var keyset *model.UserKeyset
+	var keyset *repository.UserKeyset
 	if err != nil {
 		// If no keyset exists, create a new one
-		keyset = &model.UserKeyset{
+		keyset = &repository.UserKeyset{
 			UserID:        userID,
 			KeyData:       "",
 			EncryptionKey: "",
@@ -357,7 +356,7 @@ func (j *jwkManager) GetPrivateKeyByID(keyID string) (*rsa.PrivateKey, error) {
 	}
 
 	// Try reverse lookup to find userID first
-	var keyset *model.UserKeyset
+	var keyset *repository.UserKeyset
 	var err error
 
 	if userID, exists := j.keyToUser[keyID]; exists {

@@ -8,18 +8,25 @@ import (
 
 	"github.com/sushan531/jwk-auth/internal/config"
 	"github.com/sushan531/jwk-auth/internal/manager"
-	"github.com/sushan531/jwk-auth/model"
 )
 
-type AuthService interface {
-	// Session-based methods
-	GenerateTokenPairWithKeyID(user *model.User, keyID string) (*model.TokenPair, error)
-	RefreshTokensWithKeyID(refreshToken string, username string, keyID string) (*model.TokenPair, error)
+// TokenPair represents an access/refresh token pair
+type TokenPair struct {
+	AccessToken  string `json:"access_token"`
+	RefreshToken string `json:"refresh_token"`
+	TokenType    string `json:"token_type"`
+	ExpiresIn    int64  `json:"expires_in"`
+}
 
-	// Common methods
+type AuthService interface {
+	// Flexible claims methods
+	GenerateTokenPairWithKeyID(claims map[string]interface{}, keyID string) (*TokenPair, error)
+	RefreshTokensWithKeyID(refreshToken string, newClaims map[string]interface{}, keyID string) (*TokenPair, error)
+
+	// Token verification methods
 	GetPublicKeys() ([]*rsa.PublicKey, error)
-	VerifyToken(token string) (*model.User, error)
-	VerifyRefreshToken(token string) (*model.User, error)
+	VerifyToken(token string) (map[string]interface{}, error)
+	VerifyRefreshToken(token string) (map[string]interface{}, error)
 	ExtractKeyIDFromToken(token string) (string, error)
 }
 
@@ -41,23 +48,37 @@ func (a authService) GetPublicKeys() ([]*rsa.PublicKey, error) {
 	return a.jwkManager.GetPublicKeys()
 }
 
-// Session-based token generation
-func (a authService) GenerateTokenPairWithKeyID(user *model.User, keyID string) (*model.TokenPair, error) {
-	// Generate access token claims (includes username)
-	accessClaims := model.NewTokenClaims(user, "access", a.config.JWT.AccessTokenDuration)
-	accessToken, err := a.jwtManager.GenerateAccessTokenWithKeyID(accessClaims.ToMap(), keyID)
+// Session-based token generation with flexible claims
+func (a authService) GenerateTokenPairWithKeyID(claims map[string]interface{}, keyID string) (*TokenPair, error) {
+	// Prepare access token claims
+	accessClaims := make(map[string]interface{})
+	for k, v := range claims {
+		accessClaims[k] = v
+	}
+	accessClaims["token_type"] = "access"
+
+	accessToken, err := a.jwtManager.GenerateAccessTokenWithKeyID(accessClaims, keyID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate access token: %w", err)
 	}
 
-	// Generate refresh token claims (only user_id)
-	refreshClaims := model.NewRefreshTokenClaims(user.Id, a.config.JWT.RefreshTokenDuration)
-	refreshToken, err := a.jwtManager.GenerateRefreshTokenWithKeyID(refreshClaims.ToMap(), keyID)
+	// Prepare refresh token claims (typically minimal - just user identifier)
+	refreshClaims := make(map[string]interface{})
+	// Copy only essential claims for refresh token (you can customize this logic)
+	if userID, exists := claims["user_id"]; exists {
+		refreshClaims["user_id"] = userID
+	}
+	if id, exists := claims["id"]; exists {
+		refreshClaims["id"] = id
+	}
+	refreshClaims["token_type"] = "refresh"
+
+	refreshToken, err := a.jwtManager.GenerateRefreshTokenWithKeyID(refreshClaims, keyID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate refresh token: %w", err)
 	}
 
-	return &model.TokenPair{
+	return &TokenPair{
 		AccessToken:  accessToken,
 		RefreshToken: refreshToken,
 		TokenType:    "Bearer",
@@ -65,9 +86,9 @@ func (a authService) GenerateTokenPairWithKeyID(user *model.User, keyID string) 
 	}, nil
 }
 
-func (a authService) RefreshTokensWithKeyID(refreshToken string, username string, keyID string) (*model.TokenPair, error) {
-	// Verify the refresh token (this only validates the token and extracts user_id)
-	userFromToken, err := a.VerifyRefreshToken(refreshToken)
+func (a authService) RefreshTokensWithKeyID(refreshToken string, newClaims map[string]interface{}, keyID string) (*TokenPair, error) {
+	// Verify the refresh token (this validates the token and extracts claims)
+	tokenClaims, err := a.VerifyRefreshToken(refreshToken)
 	if err != nil {
 		return nil, fmt.Errorf("invalid refresh token: %w", err)
 	}
@@ -78,31 +99,50 @@ func (a authService) RefreshTokensWithKeyID(refreshToken string, username string
 		return nil, fmt.Errorf("failed to extract device type from keyID: %w", err)
 	}
 
+	// Get user identifier from token claims (try both user_id and id)
+	var userID int
+	if uid, exists := tokenClaims["user_id"]; exists {
+		if uidFloat, ok := uid.(float64); ok {
+			userID = int(uidFloat)
+		}
+	} else if id, exists := tokenClaims["id"]; exists {
+		if idFloat, ok := id.(float64); ok {
+			userID = int(idFloat)
+		}
+	}
+
+	if userID == 0 {
+		return nil, fmt.Errorf("no valid user identifier found in refresh token")
+	}
+
 	// Create a new session key for the same device type (this will replace the old key)
-	newKeyID, err := a.jwkManager.CreateSessionKey(userFromToken.Id, deviceType)
+	newKeyID, err := a.jwkManager.CreateSessionKey(userID, deviceType)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create new session key: %w", err)
 	}
 
-	// Create user object with provided username for new access token
-	user := &model.User{
-		Id:       userFromToken.Id,
-		Username: username,
+	// Merge original token claims with new claims (new claims take precedence)
+	finalClaims := make(map[string]interface{})
+	for k, v := range tokenClaims {
+		finalClaims[k] = v
+	}
+	for k, v := range newClaims {
+		finalClaims[k] = v
 	}
 
 	// Generate new token pair with the new key ID
-	return a.GenerateTokenPairWithKeyID(user, newKeyID)
+	return a.GenerateTokenPairWithKeyID(finalClaims, newKeyID)
 }
 
-func (a authService) VerifyToken(token string) (*model.User, error) {
+func (a authService) VerifyToken(token string) (map[string]interface{}, error) {
 	return a.verifyTokenWithType(token, "access")
 }
 
-func (a authService) VerifyRefreshToken(token string) (*model.User, error) {
+func (a authService) VerifyRefreshToken(token string) (map[string]interface{}, error) {
 	return a.verifyTokenWithType(token, "refresh")
 }
 
-func (a authService) verifyTokenWithType(token string, expectedType string) (*model.User, error) {
+func (a authService) verifyTokenWithType(token string, expectedType string) (map[string]interface{}, error) {
 	claimsInMap, err := a.jwtManager.VerifyTokenSignatureAndGetClaims(token)
 	if err != nil {
 		return nil, fmt.Errorf("failed to verify token signature: %w", err)
@@ -124,32 +164,9 @@ func (a authService) verifyTokenWithType(token string, expectedType string) (*mo
 		return nil, fmt.Errorf("token has expired")
 	}
 
-	// Extract user information
-	userID, ok := claimsInMap["user_id"].(float64)
-	if !ok {
-		return nil, fmt.Errorf("missing or invalid user_id claim")
-	}
-
-	// For refresh tokens, username is optional (not included)
-	// For access tokens, username is required
-	var username string
-	if expectedType == "access" {
-		username, ok = claimsInMap["username"].(string)
-		if !ok {
-			return nil, fmt.Errorf("missing or invalid username claim for access token")
-		}
-	} else {
-		// For refresh tokens, username might not be present
-		if usernameVal, exists := claimsInMap["username"]; exists {
-			username, _ = usernameVal.(string)
-		}
-	}
-
-	return &model.User{
-		Id:       int(userID),
-		Username: username,
-	}, nil
+	return claimsInMap, nil
 }
+
 func (a authService) ExtractKeyIDFromToken(token string) (string, error) {
 	return a.jwtManager.ExtractKeyIDFromToken(token)
 }
