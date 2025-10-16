@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/sushan531/jwk-auth/core/config"
 	"github.com/sushan531/jwk-auth/core/manager"
 )
@@ -100,18 +101,18 @@ func (a authService) RefreshTokensWithKeyID(refreshToken string, newClaims map[s
 	}
 
 	// Get user identifier from token claims (try both user_id and id)
-	var userID int
+	var userID uuid.UUID
 	if uid, exists := tokenClaims["user_id"]; exists {
-		if uidFloat, ok := uid.(float64); ok {
-			userID = int(uidFloat)
+		if uidStr, ok := uid.(string); ok {
+			userID, _ = uuid.Parse(uidStr)
 		}
 	} else if id, exists := tokenClaims["id"]; exists {
-		if idFloat, ok := id.(float64); ok {
-			userID = int(idFloat)
+		if idStr, ok := id.(string); ok {
+			userID, _ = uuid.Parse(idStr)
 		}
 	}
 
-	if userID == 0 {
+	if userID == uuid.Nil {
 		return nil, fmt.Errorf("no valid user identifier found in refresh token")
 	}
 

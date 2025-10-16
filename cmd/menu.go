@@ -8,8 +8,10 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 
+	"github.com/sushan531/auth-sqlc/generated"
 	"github.com/sushan531/jwk-auth/core/config"
 	"github.com/sushan531/jwk-auth/core/database"
 	"github.com/sushan531/jwk-auth/core/manager"
@@ -43,8 +45,9 @@ func runMenu(cmd *cobra.Command, args []string) {
 		log.Fatalf("Failed to create tables: %v", err)
 	}
 
+	authRepo := generated.New(db)
 	// Initialize repository
-	userRepo := repository.NewUserAuthRepository(db)
+	userRepo := repository.NewUserAuthRepository(authRepo)
 
 	// Initialize JWK manager with database support and configuration
 	jwkManager := manager.NewJwkManager(userRepo, cfg)
@@ -100,12 +103,11 @@ func runMenu(cmd *cobra.Command, args []string) {
 
 // loginInteractive simulates user login by creating a session key and generating tokens with flexible claims
 func loginInteractive(jwkManager manager.JwkManager, authService service.AuthService, reader *bufio.Reader) {
-	fmt.Print("Enter user ID: ")
+	fmt.Print("Enter user ID (UUID): ")
 	userIdStr, _ := reader.ReadString('\n')
-	userID, err := strconv.Atoi(strings.TrimSpace(userIdStr))
+	userID, err := uuid.Parse(strings.TrimSpace(userIdStr))
 	if err != nil {
-		fmt.Printf("Invalid user ID: %v\n", err)
-		return
+		userID, _ = uuid.NewV7()
 	}
 
 	fmt.Print("Enter device type (web/android/ios): ")
@@ -175,11 +177,11 @@ func loginInteractive(jwkManager manager.JwkManager, authService service.AuthSer
 
 // logoutInteractive removes a specific session key
 func logoutInteractive(jwkManager manager.JwkManager, reader *bufio.Reader) {
-	fmt.Print("Enter user ID: ")
+	fmt.Print("Enter user ID (UUID): ")
 	userIdStr, _ := reader.ReadString('\n')
-	userID, err := strconv.Atoi(strings.TrimSpace(userIdStr))
+	userID, err := uuid.Parse(strings.TrimSpace(userIdStr))
 	if err != nil {
-		fmt.Printf("Invalid user ID: %v\n", err)
+		fmt.Printf("Invalid user ID (must be UUID): %v\n", err)
 		return
 	}
 
@@ -218,11 +220,11 @@ func logoutInteractive(jwkManager manager.JwkManager, reader *bufio.Reader) {
 
 // viewActiveSessionsInteractive shows all active sessions for a user
 func viewActiveSessionsInteractive(jwkManager manager.JwkManager, reader *bufio.Reader) {
-	fmt.Print("Enter user ID: ")
+	fmt.Print("Enter user ID (UUID): ")
 	userIdStr, _ := reader.ReadString('\n')
-	userID, err := strconv.Atoi(strings.TrimSpace(userIdStr))
+	userID, err := uuid.Parse(strings.TrimSpace(userIdStr))
 	if err != nil {
-		fmt.Printf("Invalid user ID: %v\n", err)
+		fmt.Printf("Invalid user ID (must be UUID): %v\n", err)
 		return
 	}
 
@@ -240,7 +242,7 @@ func viewActiveSessionsInteractive(jwkManager manager.JwkManager, reader *bufio.
 		return
 	}
 
-	fmt.Printf("Active sessions for user %d:\n", userID)
+	fmt.Printf("Active sessions for user %s:\n", userID)
 	for i, keyID := range sessions {
 		fmt.Printf("%d. %s\n", i+1, keyID)
 	}
@@ -248,11 +250,11 @@ func viewActiveSessionsInteractive(jwkManager manager.JwkManager, reader *bufio.
 
 // logoutAllDevicesInteractive removes all session keys for a user
 func logoutAllDevicesInteractive(jwkManager manager.JwkManager, reader *bufio.Reader) {
-	fmt.Print("Enter user ID: ")
+	fmt.Print("Enter user ID (UUID): ")
 	userIdStr, _ := reader.ReadString('\n')
-	userID, err := strconv.Atoi(strings.TrimSpace(userIdStr))
+	userID, err := uuid.Parse(strings.TrimSpace(userIdStr))
 	if err != nil {
-		fmt.Printf("Invalid user ID: %v\n", err)
+		fmt.Printf("Invalid user ID (must be UUID): %v\n", err)
 		return
 	}
 
@@ -282,11 +284,11 @@ func logoutAllDevicesInteractive(jwkManager manager.JwkManager, reader *bufio.Re
 
 // getUserPublicKeysInteractive shows all public keys for a user
 func getUserPublicKeysInteractive(jwkManager manager.JwkManager, reader *bufio.Reader) {
-	fmt.Print("Enter user ID: ")
+	fmt.Print("Enter user ID (UUID): ")
 	userIdStr, _ := reader.ReadString('\n')
-	userID, err := strconv.Atoi(strings.TrimSpace(userIdStr))
+	userID, err := uuid.Parse(strings.TrimSpace(userIdStr))
 	if err != nil {
-		fmt.Printf("Invalid user ID: %v\n", err)
+		fmt.Printf("Invalid user ID (must be UUID): %v\n", err)
 		return
 	}
 
@@ -304,7 +306,7 @@ func getUserPublicKeysInteractive(jwkManager manager.JwkManager, reader *bufio.R
 		return
 	}
 
-	fmt.Printf("Public keys for user %d:\n", userID)
+	fmt.Printf("Public keys for user %s:\n", userID)
 	for i, key := range publicKeys {
 		fmt.Printf("%d. RSA-%d key\n", i+1, key.Size()*8)
 	}

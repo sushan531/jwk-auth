@@ -1,22 +1,22 @@
 package repository
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"time"
 
+	"github.com/google/uuid"
 	"github.com/lestrrat-go/jwx/v3/jwk"
+	"github.com/sushan531/auth-sqlc/generated"
 )
 
 // UserKeyset represents a consolidated key storage for a user
 // containing all device keys in a single JWKS JSON field
 type UserKeyset struct {
-	UserID        int       `json:"user_id"`
+	UserID        uuid.UUID `json:"user_id"`
 	KeyData       string    `json:"key_data"`       // Encrypted JWKS JSON string
 	EncryptionKey string    `json:"encryption_key"` // Fernet encryption key for this user
-	Created       time.Time `json:"created"`
-	Updated       time.Time `json:"updated"`
 }
 
 // GetJWKS deserializes the JWKS from the stored encrypted JSON string
@@ -39,7 +39,6 @@ func (uk *UserKeyset) SetJWKS(keySet jwk.Set) error {
 		return fmt.Errorf("failed to marshal JWKS: %w", err)
 	}
 	uk.KeyData = string(keyBytes)
-	uk.Updated = time.Now()
 	return nil
 }
 
@@ -146,39 +145,29 @@ func (uk *UserKeyset) IsEmpty() bool {
 
 type UserAuthRepository interface {
 	// Keyset management (consolidated approach)
-	SaveUserKeyset(userID int, keyData string, encryptionKey string) error
-	GetUserKeyset(userID int) (*UserKeyset, error)
-	DeleteUserKeyset(userID int) error
+	SaveUserKeyset(userID uuid.UUID, keyData string, encryptionKey string) error
+	GetUserKeyset(userID uuid.UUID) (*UserKeyset, error)
+	DeleteUserKeyset(userID uuid.UUID) error
 	GetAllUserKeysets() ([]*UserKeyset, error)
-
-	// Device key operations within keysets
-	UpdateDeviceKeyInKeyset(userID int, deviceType string, keyID string, keyData string) error
-	RemoveDeviceKeyFromKeyset(userID int, deviceType string) error
-	FindKeysetByKeyID(keyID string) (*UserKeyset, error)
 }
 
 type userAuthRepository struct {
-	db *sql.DB
+	db *generated.Queries
 }
 
-func NewUserAuthRepository(db *sql.DB) UserAuthRepository {
+func NewUserAuthRepository(db *generated.Queries) *userAuthRepository {
 	return &userAuthRepository{db: db}
 }
 
 // SaveUserKeyset saves or updates a user's consolidated keyset with encryption
-func (r *userAuthRepository) SaveUserKeyset(userID int, keyData string, encryptionKey string) error {
-	query := `
-		INSERT INTO user_keysets (user_id, key_data, encryption_key, created, updated)
-		VALUES ($1, $2, $3, $4, $5)
-		ON CONFLICT (user_id) 
-		DO UPDATE SET 
-			key_data = EXCLUDED.key_data,
-			encryption_key = EXCLUDED.encryption_key,
-			updated = EXCLUDED.updated
-	`
-
-	now := time.Now()
-	_, err := r.db.Exec(query, userID, keyData, encryptionKey, now, now)
+func (r *userAuthRepository) SaveUserKeyset(userID uuid.UUID, keyData string, encryptionKey string) error {
+	_, err := r.db.ConditionalUpdateAuth(context.Background(), generated.ConditionalUpdateAuthParams{
+		Column3:       1,
+		KeysetData:    sql.NullString{String: keyData, Valid: true},
+		Column5:       1,
+		EncryptionKey: sql.NullString{String: encryptionKey, Valid: true},
+		UserProfileID: userID,
+	})
 	if err != nil {
 		return fmt.Errorf("failed to save user keyset: %w", err)
 	}
@@ -187,23 +176,8 @@ func (r *userAuthRepository) SaveUserKeyset(userID int, keyData string, encrypti
 }
 
 // GetUserKeyset retrieves a user's consolidated keyset
-func (r *userAuthRepository) GetUserKeyset(userID int) (*UserKeyset, error) {
-	query := `
-		SELECT user_id, key_data, encryption_key, created, updated
-		FROM user_keysets
-		WHERE user_id = $1
-	`
-
-	var uk UserKeyset
-
-	err := r.db.QueryRow(query, userID).Scan(
-		&uk.UserID,
-		&uk.KeyData,
-		&uk.EncryptionKey,
-		&uk.Created,
-		&uk.Updated,
-	)
-
+func (r *userAuthRepository) GetUserKeyset(userID uuid.UUID) (*UserKeyset, error) {
+	userKeyset, err := r.db.GetUserKeySet(context.Background(), userID)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, fmt.Errorf("no keyset found for user %d", userID)
@@ -211,25 +185,17 @@ func (r *userAuthRepository) GetUserKeyset(userID int) (*UserKeyset, error) {
 		return nil, fmt.Errorf("failed to get user keyset: %w", err)
 	}
 
-	return &uk, nil
+	return &UserKeyset{
+		EncryptionKey: userKeyset.EncryptionKey.String,
+		KeyData:       userKeyset.KeysetData.String,
+	}, nil
 }
 
 // DeleteUserKeyset removes a user's consolidated keyset
-func (r *userAuthRepository) DeleteUserKeyset(userID int) error {
-	query := `DELETE FROM user_keysets WHERE user_id = $1`
-
-	result, err := r.db.Exec(query, userID)
+func (r *userAuthRepository) DeleteUserKeyset(userID uuid.UUID) error {
+	_, err := r.db.DeleteUserKeySet(context.Background(), userID)
 	if err != nil {
 		return fmt.Errorf("failed to delete user keyset: %w", err)
-	}
-
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("failed to get rows affected: %w", err)
-	}
-
-	if rowsAffected == 0 {
-		return fmt.Errorf("no keyset found for user %d", userID)
 	}
 
 	return nil
@@ -237,53 +203,18 @@ func (r *userAuthRepository) DeleteUserKeyset(userID int) error {
 
 // GetAllUserKeysets retrieves all user keysets for system-wide operations
 func (r *userAuthRepository) GetAllUserKeysets() ([]*UserKeyset, error) {
-	query := `
-		SELECT user_id, key_data, encryption_key, created, updated
-		FROM user_keysets
-		ORDER BY updated DESC
-	`
-
-	rows, err := r.db.Query(query)
+	rows, err := r.db.GetAllUserKeySet(context.Background())
 	if err != nil {
 		return nil, fmt.Errorf("failed to query all user keysets: %w", err)
 	}
-	defer rows.Close()
-
-	var keysets []*UserKeyset
-	for rows.Next() {
-		var uk UserKeyset
-
-		err := rows.Scan(
-			&uk.UserID,
-			&uk.KeyData,
-			&uk.EncryptionKey,
-			&uk.Created,
-			&uk.Updated,
-		)
-		if err != nil {
-			continue // Skip invalid rows
+	keysets := make([]*UserKeyset, 0, len(rows))
+	for _, row := range rows {
+		keyset := &UserKeyset{
+			UserID:        row.UserProfileID,
+			EncryptionKey: row.EncryptionKey.String,
+			KeyData:       row.KeysetData.String,
 		}
-
-		keysets = append(keysets, &uk)
+		keysets = append(keysets, keyset)
 	}
-
 	return keysets, nil
-}
-
-// UpdateDeviceKeyInKeyset updates a specific device key within a user's JWKS
-// Note: This method is deprecated with encryption. Use JWK manager methods instead.
-func (r *userAuthRepository) UpdateDeviceKeyInKeyset(userID int, deviceType string, keyID string, keyData string) error {
-	return fmt.Errorf("UpdateDeviceKeyInKeyset is deprecated with encryption - use JWK manager methods instead")
-}
-
-// RemoveDeviceKeyFromKeyset removes a specific device key from a user's JWKS
-// Note: This method is deprecated with encryption. Use JWK manager methods instead.
-func (r *userAuthRepository) RemoveDeviceKeyFromKeyset(userID int, deviceType string) error {
-	return fmt.Errorf("RemoveDeviceKeyFromKeyset is deprecated with encryption - use JWK manager methods instead")
-}
-
-// FindKeysetByKeyID searches through all user keysets to find the one containing the specified key ID
-// Note: This method is deprecated with encryption. Use JWK manager methods instead.
-func (r *userAuthRepository) FindKeysetByKeyID(keyID string) (*UserKeyset, error) {
-	return nil, fmt.Errorf("FindKeysetByKeyID is deprecated with encryption - use JWK manager methods instead")
 }

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/lestrrat-go/jwx/v3/jwk"
 	"github.com/sushan531/jwk-auth/core/config"
 	"github.com/sushan531/jwk-auth/core/repository"
@@ -13,28 +14,28 @@ import (
 
 type JwkManager interface {
 	// Session-based key management
-	CreateSessionKey(userID int, deviceType string) (keyID string, err error)
-	DeleteSessionKey(userID int, keyID string) error
-	GetSessionKeys(userID int) ([]string, error)
+	CreateSessionKey(userID uuid.UUID, deviceType string) (keyID string, err error)
+	DeleteSessionKey(userID uuid.UUID, keyID string) error
+	GetSessionKeys(userID uuid.UUID) ([]string, error)
 
 	// Key retrieval for token operations
 	GetPrivateKeyByID(keyID string) (*rsa.PrivateKey, error)
 	GetPublicKeyBy(keyID string) (*rsa.PublicKey, error)
 	GetPublicKeys() ([]*rsa.PublicKey, error)
-	GetUserPublicKeys(userID int) ([]*rsa.PublicKey, error)
+	GetUserPublicKeys(userID uuid.UUID) ([]*rsa.PublicKey, error)
 
 	// Database operations
-	LoadUserKeysFromDB(userID int) error
+	LoadUserKeysFromDB(userID uuid.UUID) error
 }
 
 type jwkManager struct {
 	userRepo      repository.UserAuthRepository
 	config        *config.Config
 	encryptionMgr EncryptionManager
-	userKeysets   map[int]*repository.UserKeyset
-	parsedJWKS    map[int]jwk.Set // JWKS-specific cache for complete JWKS per user
+	userKeysets   map[uuid.UUID]*repository.UserKeyset
+	parsedJWKS    map[uuid.UUID]jwk.Set // JWKS-specific cache for complete JWKS per user
 	parsedKeys    map[string]jwk.Key
-	keyToUser     map[string]int
+	keyToUser     map[string]uuid.UUID
 }
 
 func NewJwkManager(userRepo repository.UserAuthRepository, cfg *config.Config) JwkManager {
@@ -42,10 +43,10 @@ func NewJwkManager(userRepo repository.UserAuthRepository, cfg *config.Config) J
 		userRepo:      userRepo,
 		config:        cfg,
 		encryptionMgr: NewEncryptionManager(),
-		userKeysets:   make(map[int]*repository.UserKeyset),
-		parsedJWKS:    make(map[int]jwk.Set),
+		userKeysets:   make(map[uuid.UUID]*repository.UserKeyset),
+		parsedJWKS:    make(map[uuid.UUID]jwk.Set),
 		parsedKeys:    make(map[string]jwk.Key),
-		keyToUser:     make(map[string]int),
+		keyToUser:     make(map[string]uuid.UUID),
 	}
 }
 
@@ -132,7 +133,7 @@ func (j *jwkManager) findKeysetByKeyID(keyID string) (*repository.UserKeyset, er
 
 // CreateSessionKey creates a new RSA key for a user session using JWKS format
 // Implements single device login - invalidates existing sessions for the same device type
-func (j *jwkManager) CreateSessionKey(userID int, deviceType string) (string, error) {
+func (j *jwkManager) CreateSessionKey(userID uuid.UUID, deviceType string) (string, error) {
 	// Use rsa.GenerateKey() to create RSA private key
 	privateKey, err := rsa.GenerateKey(rand.Reader, j.config.JWT.RSAKeySize)
 	if err != nil {
@@ -162,11 +163,8 @@ func (j *jwkManager) CreateSessionKey(userID int, deviceType string) (string, er
 	if err != nil {
 		// If no keyset exists, create a new one
 		keyset = &repository.UserKeyset{
-			UserID:        userID,
 			KeyData:       "",
 			EncryptionKey: "",
-			Created:       time.Now(),
-			Updated:       time.Now(),
 		}
 	} else {
 		// Decrypt the existing keyset
@@ -222,7 +220,7 @@ func (j *jwkManager) CreateSessionKey(userID int, deviceType string) (string, er
 
 // DeleteSessionKey removes a session key for a user using consolidated keyset storage
 // Implements requirements: 2.4, 3.2, 3.4
-func (j *jwkManager) DeleteSessionKey(userID int, keyID string) error {
+func (j *jwkManager) DeleteSessionKey(userID uuid.UUID, keyID string) error {
 	// Load user's keyset from database
 	encryptedKeyset, err := j.userRepo.GetUserKeyset(userID)
 	if err != nil {
@@ -306,7 +304,7 @@ func (j *jwkManager) DeleteSessionKey(userID int, keyID string) error {
 
 // GetSessionKeys returns all active key IDs for a user using consolidated keyset storage
 // Extracts key IDs from user's keyset using jwk library
-func (j *jwkManager) GetSessionKeys(userID int) ([]string, error) {
+func (j *jwkManager) GetSessionKeys(userID uuid.UUID) ([]string, error) {
 	// Get user's consolidated keyset from database
 	encryptedKeyset, err := j.userRepo.GetUserKeyset(userID)
 	if err != nil {
@@ -477,7 +475,7 @@ func (j *jwkManager) GetPublicKeys() ([]*rsa.PublicKey, error) {
 }
 
 // GetUserPublicKeys returns all public keys for a specific user using consolidated keyset storage
-func (j *jwkManager) GetUserPublicKeys(userID int) ([]*rsa.PublicKey, error) {
+func (j *jwkManager) GetUserPublicKeys(userID uuid.UUID) ([]*rsa.PublicKey, error) {
 	// Get user's consolidated keyset from database
 	encryptedKeyset, err := j.userRepo.GetUserKeyset(userID)
 	if err != nil {
@@ -518,7 +516,7 @@ func (j *jwkManager) GetUserPublicKeys(userID int) ([]*rsa.PublicKey, error) {
 }
 
 // LoadUserKeysFromDB loads all keys for a specific user from consolidated keyset storage into memory cache
-func (j *jwkManager) LoadUserKeysFromDB(userID int) error {
+func (j *jwkManager) LoadUserKeysFromDB(userID uuid.UUID) error {
 	// Get user's consolidated keyset from database
 	encryptedKeyset, err := j.userRepo.GetUserKeyset(userID)
 	if err != nil {
