@@ -162,16 +162,17 @@ func NewUserAuthRepository(db *generated.Queries) *userAuthRepository {
 // SaveUserKeyset saves or updates a user's consolidated keyset with encryption
 func (r *userAuthRepository) SaveUserKeyset(userID uuid.UUID, keyData string, encryptionKey string) error {
 	_, err := r.db.ConditionalUpdateAuth(context.Background(), generated.ConditionalUpdateAuthParams{
-		Column3:       1,
+		Column1:       0,  // Assuming this is for update condition
+		Password:      "", // Empty password field
+		Column3:       1,  // Assuming this is for keyset data condition
 		KeysetData:    sql.NullString{String: keyData, Valid: true},
-		Column5:       1,
+		Column5:       1, // Assuming this is for encryption key condition
 		EncryptionKey: sql.NullString{String: encryptionKey, Valid: true},
-		UserProfileID: userID,
+		UserProfileID: userID, // Using google/uuid as expected
 	})
 	if err != nil {
-		return fmt.Errorf("failed to save user keyset: %w", err)
+		return fmt.Errorf("failed to save user keyset for user %s: %w", userID.String(), err)
 	}
-
 	return nil
 }
 
@@ -180,12 +181,13 @@ func (r *userAuthRepository) GetUserKeyset(userID uuid.UUID) (*UserKeyset, error
 	userKeyset, err := r.db.GetUserKeySet(context.Background(), userID)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			return nil, fmt.Errorf("no keyset found for user %d", userID)
+			return nil, fmt.Errorf("no keyset found for user %s", userID.String())
 		}
 		return nil, fmt.Errorf("failed to get user keyset: %w", err)
 	}
 
 	return &UserKeyset{
+		UserID:        userKeyset.UserProfileID,
 		EncryptionKey: userKeyset.EncryptionKey.String,
 		KeyData:       userKeyset.KeysetData.String,
 	}, nil
