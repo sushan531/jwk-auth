@@ -117,8 +117,8 @@ func loginInteractive(jwkManager manager.JwkManager, authService service.AuthSer
 		deviceType = "web"
 	}
 
-	// Load existing keys for user
-	jwkManager.LoadUserKeysFromDB(userID)
+	//// Load existing keys for user
+	//jwkManager.LoadUserKeysFromDB(userID)
 
 	// Create session key
 	keyID, err := jwkManager.CreateSessionKey(userID, deviceType)
@@ -185,8 +185,8 @@ func logoutInteractive(jwkManager manager.JwkManager, reader *bufio.Reader) {
 		return
 	}
 
-	// Load user keys first
-	jwkManager.LoadUserKeysFromDB(userID)
+	//// Load user keys first
+	//jwkManager.LoadUserKeysFromDB(userID)
 
 	// Show active sessions
 	sessions, err := jwkManager.GetSessionKeys(userID)
@@ -228,8 +228,8 @@ func viewActiveSessionsInteractive(jwkManager manager.JwkManager, reader *bufio.
 		return
 	}
 
-	// Load user keys from database
-	jwkManager.LoadUserKeysFromDB(userID)
+	//// Load user keys from database
+	//jwkManager.LoadUserKeysFromDB(userID)
 
 	sessions, err := jwkManager.GetSessionKeys(userID)
 	if err != nil {
@@ -258,8 +258,8 @@ func logoutAllDevicesInteractive(jwkManager manager.JwkManager, reader *bufio.Re
 		return
 	}
 
-	// Load user keys first
-	jwkManager.LoadUserKeysFromDB(userID)
+	//// Load user keys first
+	//jwkManager.LoadUserKeysFromDB(userID)
 
 	sessions, err := jwkManager.GetSessionKeys(userID)
 	if err != nil || len(sessions) == 0 {
@@ -292,8 +292,8 @@ func getUserPublicKeysInteractive(jwkManager manager.JwkManager, reader *bufio.R
 		return
 	}
 
-	// Load user keys from database
-	jwkManager.LoadUserKeysFromDB(userID)
+	//// Load user keys from database
+	//jwkManager.LoadUserKeysFromDB(userID)
 
 	publicKeys, err := jwkManager.GetUserPublicKeys(userID)
 	if err != nil {

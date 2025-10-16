@@ -24,18 +24,14 @@ type JwkManager interface {
 	GetPublicKeys() ([]*rsa.PublicKey, error)
 	GetUserPublicKeys(userID uuid.UUID) ([]*rsa.PublicKey, error)
 
-	// Database operations
-	LoadUserKeysFromDB(userID uuid.UUID) error
+	//// Database operations
+	//LoadUserKeysFromDB(userID uuid.UUID) error
 }
 
 type jwkManager struct {
 	userRepo      repository.UserAuthRepository
 	config        *config.Config
 	encryptionMgr EncryptionManager
-	userKeysets   map[uuid.UUID]*repository.UserKeyset
-	parsedJWKS    map[uuid.UUID]jwk.Set // JWKS-specific cache for complete JWKS per user
-	parsedKeys    map[string]jwk.Key
-	keyToUser     map[string]uuid.UUID
 }
 
 func NewJwkManager(userRepo repository.UserAuthRepository, cfg *config.Config) JwkManager {
@@ -43,10 +39,6 @@ func NewJwkManager(userRepo repository.UserAuthRepository, cfg *config.Config) J
 		userRepo:      userRepo,
 		config:        cfg,
 		encryptionMgr: NewEncryptionManager(),
-		userKeysets:   make(map[uuid.UUID]*repository.UserKeyset),
-		parsedJWKS:    make(map[uuid.UUID]jwk.Set),
-		parsedKeys:    make(map[string]jwk.Key),
-		keyToUser:     make(map[string]uuid.UUID),
 	}
 }
 
@@ -176,14 +168,7 @@ func (j *jwkManager) CreateSessionKey(userID uuid.UUID, deviceType string) (stri
 
 	// Remove old device key using SetDeviceKey() (which handles replacement)
 	if keyset.HasDeviceKey(deviceType) {
-		// Get the old key to remove it from caches
-		if oldKey, err := keyset.GetDeviceKey(deviceType); err == nil {
-			if oldKeyID, exists := oldKey.KeyID(); exists {
-				// Remove from caches
-				delete(j.parsedKeys, oldKeyID)
-				delete(j.keyToUser, oldKeyID)
-			}
-		}
+		// SetDeviceKey will handle replacement automatically
 	}
 
 	// Use SetDeviceKey() to add/replace the device key in JWKS
@@ -203,16 +188,6 @@ func (j *jwkManager) CreateSessionKey(userID uuid.UUID, deviceType string) (stri
 
 	if err := j.userRepo.SaveUserKeyset(userID, encryptedData, encryptionKey); err != nil {
 		return "", fmt.Errorf("failed to save JWKS to database: %w", err)
-	}
-
-	// Update memory caches with new key and JWKS
-	j.userKeysets[userID] = keyset
-	j.parsedKeys[keyID] = key
-	j.keyToUser[keyID] = userID
-
-	// Update JWKS cache
-	if jwks, err := keyset.GetJWKS(); err == nil {
-		j.parsedJWKS[userID] = jwks
 	}
 
 	return keyID, nil
@@ -274,9 +249,6 @@ func (j *jwkManager) DeleteSessionKey(userID uuid.UUID, keyID string) error {
 		if err := j.userRepo.DeleteUserKeyset(userID); err != nil {
 			return fmt.Errorf("failed to delete empty keyset: %w", err)
 		}
-		// Remove from cache
-		delete(j.userKeysets, userID)
-		delete(j.parsedJWKS, userID)
 	} else {
 		// Encrypt and save the updated keyset to database
 		encryptedData, encryptionKey, err := j.encryptKeyset(keyset.KeyData, encryptedKeyset.EncryptionKey)
@@ -287,17 +259,7 @@ func (j *jwkManager) DeleteSessionKey(userID uuid.UUID, keyID string) error {
 		if err := j.userRepo.SaveUserKeyset(userID, encryptedData, encryptionKey); err != nil {
 			return fmt.Errorf("failed to save updated keyset: %w", err)
 		}
-		// Update cache with decrypted keyset
-		j.userKeysets[userID] = keyset
-		// Update JWKS cache
-		if jwks, err := keyset.GetJWKS(); err == nil {
-			j.parsedJWKS[userID] = jwks
-		}
 	}
-
-	// Update caches - remove the specific key
-	delete(j.parsedKeys, keyID)
-	delete(j.keyToUser, keyID)
 
 	return nil
 }
@@ -344,49 +306,10 @@ func (j *jwkManager) GetSessionKeys(userID uuid.UUID) ([]string, error) {
 // GetPrivateKeyByID retrieves a private key by its ID
 // Uses jwk.ParseKey() when loading from database and jwk.Export() to extract RSA key for JWT signing
 func (j *jwkManager) GetPrivateKeyByID(keyID string) (*rsa.PrivateKey, error) {
-	// Check memory cache first
-	if key, exists := j.parsedKeys[keyID]; exists {
-		var rsaPrivateKey rsa.PrivateKey
-		if err := jwk.Export(key, &rsaPrivateKey); err != nil {
-			return nil, fmt.Errorf("failed to export private key from cache: %w", err)
-		}
-		return &rsaPrivateKey, nil
-	}
-
-	// Try reverse lookup to find userID first
-	var keyset *repository.UserKeyset
-	var err error
-
-	if userID, exists := j.keyToUser[keyID]; exists {
-		// We know which user owns this key, try to get their keyset from cache
-		if cachedKeyset, found := j.userKeysets[userID]; found {
-			keyset = cachedKeyset
-		} else {
-			// Load from database and cache it
-			encryptedKeyset, err := j.userRepo.GetUserKeyset(userID)
-			if err != nil {
-				// Key might have been deleted, fall back to full search
-				keyset = nil
-			} else {
-				// Decrypt the keyset
-				keyset, err = j.decryptKeyset(encryptedKeyset)
-				if err != nil {
-					keyset = nil
-				} else {
-					j.userKeysets[userID] = keyset
-				}
-			}
-		}
-	}
-
-	// If reverse lookup failed or keyset not found, fall back to database search
-	if keyset == nil {
-		keyset, err = j.findKeysetByKeyID(keyID)
-		if err != nil {
-			return nil, fmt.Errorf("key not found in consolidated storage: %w", err)
-		}
-		// Cache the decrypted keyset for future use
-		j.userKeysets[keyset.UserID] = keyset
+	// Find keyset containing the key by searching database
+	keyset, err := j.findKeysetByKeyID(keyID)
+	if err != nil {
+		return nil, fmt.Errorf("key not found in consolidated storage: %w", err)
 	}
 
 	// Find the specific key within the JWKS
@@ -410,10 +333,6 @@ func (j *jwkManager) GetPrivateKeyByID(keyID string) (*rsa.PrivateKey, error) {
 	if foundKey == nil {
 		return nil, fmt.Errorf("key ID %s not found in keyset for user %d", keyID, keyset.UserID)
 	}
-
-	// Update caches
-	j.parsedKeys[keyID] = foundKey
-	j.keyToUser[keyID] = keyset.UserID
 
 	// Use jwk.Export(key, &rsaPrivateKey) to extract RSA key for JWT signing
 	var rsaPrivateKey rsa.PrivateKey
@@ -515,64 +434,64 @@ func (j *jwkManager) GetUserPublicKeys(userID uuid.UUID) ([]*rsa.PublicKey, erro
 	return publicKeys, nil
 }
 
-// LoadUserKeysFromDB loads all keys for a specific user from consolidated keyset storage into memory cache
-func (j *jwkManager) LoadUserKeysFromDB(userID uuid.UUID) error {
-	// Get user's consolidated keyset from database
-	encryptedKeyset, err := j.userRepo.GetUserKeyset(userID)
-	if err != nil {
-		// If no keyset exists, just clear the cache for this user
-		if err.Error() == fmt.Sprintf("no keyset found for user %d", userID) {
-			// Clear existing cache for this user
-			for keyID, cachedUserID := range j.keyToUser {
-				if cachedUserID == userID {
-					delete(j.keyToUser, keyID)
-					delete(j.parsedKeys, keyID)
-				}
-			}
-			delete(j.userKeysets, userID)
-			return nil
-		}
-		return fmt.Errorf("failed to load user keyset from database: %w", err)
-	}
-
-	// Decrypt the keyset
-	keyset, err := j.decryptKeyset(encryptedKeyset)
-	if err != nil {
-		return fmt.Errorf("failed to decrypt keyset: %w", err)
-	}
-
-	// Clear existing cache for this user
-	for keyID, cachedUserID := range j.keyToUser {
-		if cachedUserID == userID {
-			delete(j.keyToUser, keyID)
-			delete(j.parsedKeys, keyID)
-		}
-	}
-	delete(j.userKeysets, userID)
-	delete(j.parsedJWKS, userID)
-
-	// Load user's JWKS using GetUserKeyset() and GetJWKS()
-	jwks, err := keyset.GetJWKS()
-	if err != nil {
-		return fmt.Errorf("failed to parse user JWKS: %w", err)
-	}
-
-	// Cache the complete JWKS in parsedJWKS map
-	j.parsedJWKS[userID] = jwks
-
-	// Extract individual keys and cache in parsedKeys map
-	for i := 0; i < jwks.Len(); i++ {
-		key, _ := jwks.Key(i)
-
-		// Update keyToUser reverse lookup cache
-		if keyID, exists := key.KeyID(); exists {
-			j.parsedKeys[keyID] = key
-			j.keyToUser[keyID] = userID
-		}
-	}
-
-	// Cache the entire keyset
-	j.userKeysets[userID] = keyset
-
-	return nil
-}
+//// LoadUserKeysFromDB loads all keys for a specific user from consolidated keyset storage into memory cache
+//func (j *jwkManager) LoadUserKeysFromDB(userID uuid.UUID) error {
+//	// Get user's consolidated keyset from database
+//	encryptedKeyset, err := j.userRepo.GetUserKeyset(userID)
+//	if err != nil {
+//		// If no keyset exists, just clear the cache for this user
+//		if err.Error() == fmt.Sprintf("no keyset found for user %d", userID) {
+//			// Clear existing cache for this user
+//			for keyID, cachedUserID := range j.keyToUser {
+//				if cachedUserID == userID {
+//					delete(j.keyToUser, keyID)
+//					delete(j.parsedKeys, keyID)
+//				}
+//			}
+//			delete(j.userKeysets, userID)
+//			return nil
+//		}
+//		return fmt.Errorf("failed to load user keyset from database: %w", err)
+//	}
+//
+//	// Decrypt the keyset
+//	keyset, err := j.decryptKeyset(encryptedKeyset)
+//	if err != nil {
+//		return fmt.Errorf("failed to decrypt keyset: %w", err)
+//	}
+//
+//	// Clear existing cache for this user
+//	for keyID, cachedUserID := range j.keyToUser {
+//		if cachedUserID == userID {
+//			delete(j.keyToUser, keyID)
+//			delete(j.parsedKeys, keyID)
+//		}
+//	}
+//	delete(j.userKeysets, userID)
+//	delete(j.parsedJWKS, userID)
+//
+//	// Load user's JWKS using GetUserKeyset() and GetJWKS()
+//	jwks, err := keyset.GetJWKS()
+//	if err != nil {
+//		return fmt.Errorf("failed to parse user JWKS: %w", err)
+//	}
+//
+//	// Cache the complete JWKS in parsedJWKS map
+//	j.parsedJWKS[userID] = jwks
+//
+//	// Extract individual keys and cache in parsedKeys map
+//	for i := 0; i < jwks.Len(); i++ {
+//		key, _ := jwks.Key(i)
+//
+//		// Update keyToUser reverse lookup cache
+//		if keyID, exists := key.KeyID(); exists {
+//			j.parsedKeys[keyID] = key
+//			j.keyToUser[keyID] = userID
+//		}
+//	}
+//
+//	// Cache the entire keyset
+//	j.userKeysets[userID] = keyset
+//
+//	return nil
+//}
