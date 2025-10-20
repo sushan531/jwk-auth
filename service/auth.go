@@ -19,7 +19,7 @@ type TokenPair struct {
 	ExpiresIn    int64  `json:"expires_in"`
 }
 
-type AuthService interface {
+type TokenService interface {
 	// Flexible claims methods
 	GenerateTokenPairWithKeyID(claims map[string]interface{}, keyID string) (*TokenPair, error)
 	RefreshTokensWithKeyID(refreshToken string, newClaims map[string]interface{}, keyID string) (*TokenPair, error)
@@ -31,26 +31,26 @@ type AuthService interface {
 	ExtractKeyIDFromToken(token string) (string, error)
 }
 
-type authService struct {
+type tokenService struct {
 	jwtManager manager.JwtManager
 	jwkManager manager.JwkManager
 	config     *config.Config
 }
 
-func NewAuthService(jwtManager manager.JwtManager, jwkManager manager.JwkManager, cfg *config.Config) AuthService {
-	return &authService{
+func NewTokenService(jwtManager manager.JwtManager, jwkManager manager.JwkManager, cfg *config.Config) TokenService {
+	return &tokenService{
 		jwtManager: jwtManager,
 		jwkManager: jwkManager,
 		config:     cfg,
 	}
 }
 
-func (a authService) GetPublicKeys() ([]*rsa.PublicKey, error) {
+func (a tokenService) GetPublicKeys() ([]*rsa.PublicKey, error) {
 	return a.jwkManager.GetPublicKeys()
 }
 
 // Session-based token generation with flexible claims
-func (a authService) GenerateTokenPairWithKeyID(claims map[string]interface{}, keyID string) (*TokenPair, error) {
+func (a tokenService) GenerateTokenPairWithKeyID(claims map[string]interface{}, keyID string) (*TokenPair, error) {
 	// Prepare access token claims
 	accessClaims := make(map[string]interface{})
 	for k, v := range claims {
@@ -87,7 +87,7 @@ func (a authService) GenerateTokenPairWithKeyID(claims map[string]interface{}, k
 	}, nil
 }
 
-func (a authService) RefreshTokensWithKeyID(refreshToken string, newClaims map[string]interface{}, keyID string) (*TokenPair, error) {
+func (a tokenService) RefreshTokensWithKeyID(refreshToken string, newClaims map[string]interface{}, keyID string) (*TokenPair, error) {
 	// Verify the refresh token (this validates the token and extracts claims)
 	tokenClaims, err := a.VerifyRefreshToken(refreshToken)
 	if err != nil {
@@ -135,15 +135,15 @@ func (a authService) RefreshTokensWithKeyID(refreshToken string, newClaims map[s
 	return a.GenerateTokenPairWithKeyID(finalClaims, newKeyID)
 }
 
-func (a authService) VerifyToken(token string) (map[string]interface{}, error) {
+func (a tokenService) VerifyToken(token string) (map[string]interface{}, error) {
 	return a.verifyTokenWithType(token, "access")
 }
 
-func (a authService) VerifyRefreshToken(token string) (map[string]interface{}, error) {
+func (a tokenService) VerifyRefreshToken(token string) (map[string]interface{}, error) {
 	return a.verifyTokenWithType(token, "refresh")
 }
 
-func (a authService) verifyTokenWithType(token string, expectedType string) (map[string]interface{}, error) {
+func (a tokenService) verifyTokenWithType(token string, expectedType string) (map[string]interface{}, error) {
 	claimsInMap, err := a.jwtManager.VerifyTokenSignatureAndGetClaims(token)
 	if err != nil {
 		return nil, fmt.Errorf("failed to verify token signature: %w", err)
@@ -168,13 +168,13 @@ func (a authService) verifyTokenWithType(token string, expectedType string) (map
 	return claimsInMap, nil
 }
 
-func (a authService) ExtractKeyIDFromToken(token string) (string, error) {
+func (a tokenService) ExtractKeyIDFromToken(token string) (string, error) {
 	return a.jwtManager.ExtractKeyIDFromToken(token)
 }
 
 // extractDeviceTypeFromKeyID extracts the device type from a keyID
 // KeyID format: deviceType-userID-timestamp
-func (a authService) extractDeviceTypeFromKeyID(keyID string) (string, error) {
+func (a tokenService) extractDeviceTypeFromKeyID(keyID string) (string, error) {
 	// Split the keyID by '-' to extract components
 	parts := strings.Split(keyID, "-")
 	if len(parts) < 3 {

@@ -55,7 +55,7 @@ func runMenu(cmd *cobra.Command, args []string) {
 	fmt.Println("Session-based JWT Authentication System initialized")
 
 	var jwtManager = manager.NewJwtManager(jwkManager)
-	var authService = service.NewAuthService(jwtManager, jwkManager, cfg)
+	var tokenService = service.NewTokenService(jwtManager, jwkManager, cfg)
 
 	reader := bufio.NewReader(os.Stdin)
 	for {
@@ -79,15 +79,15 @@ func runMenu(cmd *cobra.Command, args []string) {
 
 		switch choice {
 		case "1":
-			loginInteractive(jwkManager, authService, reader)
+			loginInteractive(jwkManager, tokenService, reader)
 		case "2":
 			logoutInteractive(jwkManager, reader)
 		case "3":
 			viewActiveSessionsInteractive(jwkManager, reader)
 		case "4":
-			verifyTokenInteractive(authService, reader)
+			verifyTokenInteractive(tokenService, reader)
 		case "5":
-			refreshTokensInteractive(authService, reader)
+			refreshTokensInteractive(tokenService, reader)
 		case "6":
 			logoutAllDevicesInteractive(jwkManager, reader)
 		case "7":
@@ -102,7 +102,7 @@ func runMenu(cmd *cobra.Command, args []string) {
 }
 
 // loginInteractive simulates user login by creating a session key and generating tokens with flexible claims
-func loginInteractive(jwkManager manager.JwkManager, authService service.AuthService, reader *bufio.Reader) {
+func loginInteractive(jwkManager manager.JwkManager, tokenService service.TokenService, reader *bufio.Reader) {
 	fmt.Print("Enter user ID (UUID): ")
 	userIdStr, _ := reader.ReadString('\n')
 	userID, err := uuid.Parse(strings.TrimSpace(userIdStr))
@@ -161,7 +161,7 @@ func loginInteractive(jwkManager manager.JwkManager, authService service.AuthSer
 	}
 
 	// Generate token pair using flexible claims
-	tokenPair, err := authService.GenerateTokenPairWithKeyID(claims, keyID)
+	tokenPair, err := tokenService.GenerateTokenPairWithKeyID(claims, keyID)
 	if err != nil {
 		fmt.Printf("Error generating tokens: %v\n", err)
 		return
@@ -312,13 +312,13 @@ func getUserPublicKeysInteractive(jwkManager manager.JwkManager, reader *bufio.R
 	}
 }
 
-func refreshTokensInteractive(authService service.AuthService, reader *bufio.Reader) {
+func refreshTokensInteractive(tokenService service.TokenService, reader *bufio.Reader) {
 	fmt.Print("Enter refresh token: ")
 	refreshToken, _ := reader.ReadString('\n')
 	refreshToken = strings.TrimSpace(refreshToken)
 
 	// Extract key ID from the refresh token
-	keyID, err := authService.ExtractKeyIDFromToken(refreshToken)
+	keyID, err := tokenService.ExtractKeyIDFromToken(refreshToken)
 	if err != nil {
 		fmt.Printf("Error extracting key ID from token: %v\n", err)
 		return
@@ -353,7 +353,7 @@ func refreshTokensInteractive(authService service.AuthService, reader *bufio.Rea
 		}
 	}
 
-	tokenPair, err := authService.RefreshTokensWithKeyID(refreshToken, newClaims, keyID)
+	tokenPair, err := tokenService.RefreshTokensWithKeyID(refreshToken, newClaims, keyID)
 	if err != nil {
 		fmt.Printf("Error refreshing tokens: %v\n", err)
 		return
@@ -367,12 +367,12 @@ func refreshTokensInteractive(authService service.AuthService, reader *bufio.Rea
 	fmt.Printf("Expires In: %d seconds\n", tokenPair.ExpiresIn)
 }
 
-func verifyTokenInteractive(authService service.AuthService, reader *bufio.Reader) {
+func verifyTokenInteractive(tokenService service.TokenService, reader *bufio.Reader) {
 	fmt.Print("Enter access token: ")
 	token, _ := reader.ReadString('\n')
 	token = strings.TrimSpace(token)
 
-	claims, err := authService.VerifyToken(token)
+	claims, err := tokenService.VerifyToken(token)
 	if err != nil {
 		fmt.Printf("Error verifying token: %v\n", err)
 		return
@@ -381,12 +381,12 @@ func verifyTokenInteractive(authService service.AuthService, reader *bufio.Reade
 	fmt.Printf("\nToken is valid! Claims: %+v\n", claims)
 }
 
-func verifyRefreshTokenInteractive(authService service.AuthService, reader *bufio.Reader) {
+func verifyRefreshTokenInteractive(tokenService service.TokenService, reader *bufio.Reader) {
 	fmt.Print("Enter refresh token: ")
 	token, _ := reader.ReadString('\n')
 	token = strings.TrimSpace(token)
 
-	claims, err := authService.VerifyRefreshToken(token)
+	claims, err := tokenService.VerifyRefreshToken(token)
 	if err != nil {
 		fmt.Printf("Error verifying refresh token: %v\n", err)
 		return
