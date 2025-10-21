@@ -116,7 +116,7 @@ func loginInteractive(jwkManager manager.JwkManager, tokenService service.TokenS
 	//jwkManager.LoadUserKeysFromDB(userID)
 
 	// Create session key
-	keyID, err := jwkManager.CreateSessionKey(userID, deviceType)
+	keyID, err := jwkManager.CreateSessionKey(userID.String(), deviceType)
 	if err != nil {
 		fmt.Printf("Error creating session key: %v\n", err)
 		return
@@ -184,7 +184,7 @@ func logoutInteractive(jwkManager manager.JwkManager, reader *bufio.Reader) {
 	//jwkManager.LoadUserKeysFromDB(userID)
 
 	// Show active sessions
-	sessions, err := jwkManager.GetSessionKeys(userID)
+	sessions, err := jwkManager.GetSessionKeys(userID.String())
 	if err != nil || len(sessions) == 0 {
 		fmt.Println("No active sessions found")
 		return
@@ -204,7 +204,7 @@ func logoutInteractive(jwkManager manager.JwkManager, reader *bufio.Reader) {
 	}
 
 	keyID := sessions[sessionNum-1]
-	err = jwkManager.DeleteSessionKey(userID, keyID)
+	err = jwkManager.DeleteSessionKey(userID.String(), keyID)
 	if err != nil {
 		fmt.Printf("Error logging out: %v\n", err)
 		return
@@ -226,7 +226,7 @@ func viewActiveSessionsInteractive(jwkManager manager.JwkManager, reader *bufio.
 	//// Load user keys from database
 	//jwkManager.LoadUserKeysFromDB(userID)
 
-	sessions, err := jwkManager.GetSessionKeys(userID)
+	sessions, err := jwkManager.GetSessionKeys(userID.String())
 	if err != nil {
 		fmt.Printf("Error getting sessions: %v\n", err)
 		return
@@ -256,7 +256,7 @@ func logoutAllDevicesInteractive(jwkManager manager.JwkManager, reader *bufio.Re
 	//// Load user keys first
 	//jwkManager.LoadUserKeysFromDB(userID)
 
-	sessions, err := jwkManager.GetSessionKeys(userID)
+	sessions, err := jwkManager.GetSessionKeys(userID.String())
 	if err != nil || len(sessions) == 0 {
 		fmt.Println("No active sessions found")
 		return
@@ -271,7 +271,7 @@ func logoutAllDevicesInteractive(jwkManager manager.JwkManager, reader *bufio.Re
 
 	// Delete all sessions
 	for _, keyID := range sessions {
-		jwkManager.DeleteSessionKey(userID, keyID)
+		jwkManager.DeleteSessionKey(userID.String(), keyID)
 	}
 
 	fmt.Printf("✓ Successfully logged out from all devices (%d sessions)\n", len(sessions))
@@ -290,7 +290,7 @@ func getUserPublicKeysInteractive(jwkManager manager.JwkManager, reader *bufio.R
 	//// Load user keys from database
 	//jwkManager.LoadUserKeysFromDB(userID)
 
-	publicKeys, err := jwkManager.GetUserPublicKeys(userID)
+	publicKeys, err := jwkManager.GetUserPublicKeys(userID.String())
 	if err != nil {
 		fmt.Printf("Error getting public keys: %v\n", err)
 		return

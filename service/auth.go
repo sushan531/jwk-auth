@@ -117,7 +117,7 @@ func (a tokenService) RefreshTokensWithKeyID(refreshToken string, newClaims map[
 	}
 
 	// Create a new session key for the same device type (this will replace the old key)
-	newKeyID, err := a.jwkManager.CreateSessionKey(userID, deviceType)
+	newKeyID, err := a.jwkManager.CreateSessionKey(userID.String(), deviceType)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create new session key: %w", err)
 	}

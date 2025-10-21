@@ -14,18 +14,18 @@ import (
 
 type JwkManager interface {
 	// Session-based key management
-	CreateSessionKey(userID uuid.UUID, deviceType string) (keyID string, err error)
-	DeleteSessionKey(userID uuid.UUID, keyID string) error
-	GetSessionKeys(userID uuid.UUID) ([]string, error)
+	CreateSessionKey(userID string, deviceType string) (keyID string, err error)
+	DeleteSessionKey(userID string, keyID string) error
+	GetSessionKeys(userID string) ([]string, error)
 
 	// Key retrieval for token operations
 	GetPrivateKeyByID(keyID string) (*rsa.PrivateKey, error)
 	GetPublicKeyBy(keyID string) (*rsa.PublicKey, error)
 	GetPublicKeys() ([]*rsa.PublicKey, error)
-	GetUserPublicKeys(userID uuid.UUID) ([]*rsa.PublicKey, error)
+	GetUserPublicKeys(userID string) ([]*rsa.PublicKey, error)
 
 	//// Database operations
-	//LoadUserKeysFromDB(userID uuid.UUID) error
+	//LoadUserKeysFromDB(userID string) error
 }
 
 type jwkManager struct {
@@ -125,7 +125,7 @@ func (j *jwkManager) findKeysetByKeyID(keyID string) (*repository.UserKeyset, er
 
 // CreateSessionKey creates a new RSA key for a user session using JWKS format
 // Implements single device login - invalidates existing sessions for the same device type
-func (j *jwkManager) CreateSessionKey(userID uuid.UUID, deviceType string) (string, error) {
+func (j *jwkManager) CreateSessionKey(userID string, deviceType string) (string, error) {
 	// Use rsa.GenerateKey() to create RSA private key
 	privateKey, err := rsa.GenerateKey(rand.Reader, j.config.JWT.RSAKeySize)
 	if err != nil {
@@ -138,8 +138,14 @@ func (j *jwkManager) CreateSessionKey(userID uuid.UUID, deviceType string) (stri
 		return "", fmt.Errorf("failed to import RSA key into JWK: %w", err)
 	}
 
+	// Convert userID string to UUID for database operations
+	userUUID, err := uuid.Parse(userID)
+	if err != nil {
+		return "", fmt.Errorf("invalid user ID format: %w", err)
+	}
+
 	// Set "kid" claim using key.Set(jwk.KeyIDKey, keyID) with format: deviceType-userID-timestamp
-	keyID := fmt.Sprintf("%s-%d-%d", deviceType, userID, time.Now().UnixNano())
+	keyID := fmt.Sprintf("%s-%s-%d", deviceType, userID, time.Now().UnixNano())
 	if err := key.Set(jwk.KeyIDKey, keyID); err != nil {
 		return "", fmt.Errorf("failed to set key ID: %w", err)
 	}
@@ -150,7 +156,7 @@ func (j *jwkManager) CreateSessionKey(userID uuid.UUID, deviceType string) (stri
 	}
 
 	// Load user's existing JWKS using GetUserKeyset() and GetJWKS()
-	encryptedKeyset, err := j.userRepo.GetUserKeyset(userID)
+	encryptedKeyset, err := j.userRepo.GetUserKeyset(userUUID)
 	var keyset *repository.UserKeyset
 	if err != nil {
 		// If no keyset exists, create a new one
@@ -186,7 +192,7 @@ func (j *jwkManager) CreateSessionKey(userID uuid.UUID, deviceType string) (stri
 		return "", fmt.Errorf("failed to encrypt keyset: %w", err)
 	}
 
-	if err := j.userRepo.SaveUserKeyset(userID, encryptedData, encryptionKey); err != nil {
+	if err := j.userRepo.SaveUserKeyset(userUUID, encryptedData, encryptionKey); err != nil {
 		return "", fmt.Errorf("failed to save JWKS to database: %w", err)
 	}
 
@@ -195,9 +201,15 @@ func (j *jwkManager) CreateSessionKey(userID uuid.UUID, deviceType string) (stri
 
 // DeleteSessionKey removes a session key for a user using consolidated keyset storage
 // Implements requirements: 2.4, 3.2, 3.4
-func (j *jwkManager) DeleteSessionKey(userID uuid.UUID, keyID string) error {
+func (j *jwkManager) DeleteSessionKey(userID string, keyID string) error {
+	// Convert userID string to UUID for database operations
+	userUUID, err := uuid.Parse(userID)
+	if err != nil {
+		return fmt.Errorf("invalid user ID format: %w", err)
+	}
+
 	// Load user's keyset from database
-	encryptedKeyset, err := j.userRepo.GetUserKeyset(userID)
+	encryptedKeyset, err := j.userRepo.GetUserKeyset(userUUID)
 	if err != nil {
 		return fmt.Errorf("failed to load user keyset: %w", err)
 	}
@@ -235,7 +247,7 @@ func (j *jwkManager) DeleteSessionKey(userID uuid.UUID, keyID string) error {
 	}
 
 	if !found {
-		return fmt.Errorf("key ID %s not found in user %d's keyset", keyID, userID)
+		return fmt.Errorf("key ID %s not found in user %s's keyset", keyID, userID)
 	}
 
 	// Remove the device key from the JWKS
@@ -246,7 +258,7 @@ func (j *jwkManager) DeleteSessionKey(userID uuid.UUID, keyID string) error {
 	// Save updated keyset or delete if empty
 	if keyset.IsEmpty() {
 		// If keyset is empty, delete the entire keyset from database
-		if err := j.userRepo.DeleteUserKeyset(userID); err != nil {
+		if err := j.userRepo.DeleteUserKeyset(userUUID); err != nil {
 			return fmt.Errorf("failed to delete empty keyset: %w", err)
 		}
 	} else {
@@ -256,7 +268,7 @@ func (j *jwkManager) DeleteSessionKey(userID uuid.UUID, keyID string) error {
 			return fmt.Errorf("failed to encrypt updated keyset: %w", err)
 		}
 
-		if err := j.userRepo.SaveUserKeyset(userID, encryptedData, encryptionKey); err != nil {
+		if err := j.userRepo.SaveUserKeyset(userUUID, encryptedData, encryptionKey); err != nil {
 			return fmt.Errorf("failed to save updated keyset: %w", err)
 		}
 	}
@@ -266,12 +278,18 @@ func (j *jwkManager) DeleteSessionKey(userID uuid.UUID, keyID string) error {
 
 // GetSessionKeys returns all active key IDs for a user using consolidated keyset storage
 // Extracts key IDs from user's keyset using jwk library
-func (j *jwkManager) GetSessionKeys(userID uuid.UUID) ([]string, error) {
+func (j *jwkManager) GetSessionKeys(userID string) ([]string, error) {
+	// Convert userID string to UUID for database operations
+	userUUID, err := uuid.Parse(userID)
+	if err != nil {
+		return nil, fmt.Errorf("invalid user ID format: %w", err)
+	}
+
 	// Get user's consolidated keyset from database
-	encryptedKeyset, err := j.userRepo.GetUserKeyset(userID)
+	encryptedKeyset, err := j.userRepo.GetUserKeyset(userUUID)
 	if err != nil {
 		// If no keyset exists, return empty list (not an error)
-		if err.Error() == fmt.Sprintf("no keyset found for user %d", userID) {
+		if err.Error() == fmt.Sprintf("no keyset found for user %s", userID) {
 			return []string{}, nil
 		}
 		return nil, fmt.Errorf("failed to get user keyset from database: %w", err)
@@ -331,7 +349,7 @@ func (j *jwkManager) GetPrivateKeyByID(keyID string) (*rsa.PrivateKey, error) {
 	}
 
 	if foundKey == nil {
-		return nil, fmt.Errorf("key ID %s not found in keyset for user %d", keyID, keyset.UserID)
+		return nil, fmt.Errorf("key ID %s not found in keyset for user %s", keyID, keyset.UserID.String())
 	}
 
 	// Use jwk.Export(key, &rsaPrivateKey) to extract RSA key for JWT signing
@@ -394,12 +412,18 @@ func (j *jwkManager) GetPublicKeys() ([]*rsa.PublicKey, error) {
 }
 
 // GetUserPublicKeys returns all public keys for a specific user using consolidated keyset storage
-func (j *jwkManager) GetUserPublicKeys(userID uuid.UUID) ([]*rsa.PublicKey, error) {
+func (j *jwkManager) GetUserPublicKeys(userID string) ([]*rsa.PublicKey, error) {
+	// Convert userID string to UUID for database operations
+	userUUID, err := uuid.Parse(userID)
+	if err != nil {
+		return nil, fmt.Errorf("invalid user ID format: %w", err)
+	}
+
 	// Get user's consolidated keyset from database
-	encryptedKeyset, err := j.userRepo.GetUserKeyset(userID)
+	encryptedKeyset, err := j.userRepo.GetUserKeyset(userUUID)
 	if err != nil {
 		// If no keyset exists, return empty list (not an error)
-		if err.Error() == fmt.Sprintf("no keyset found for user %d", userID) {
+		if err.Error() == fmt.Sprintf("no keyset found for user %s", userID) {
 			return []*rsa.PublicKey{}, nil
 		}
 		return nil, fmt.Errorf("failed to get user keyset: %w", err)
