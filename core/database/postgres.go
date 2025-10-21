@@ -35,28 +35,3 @@ func NewConnection(config Config) (*sql.DB, error) {
 
 	return db, nil
 }
-
-func CreateTables(db *sql.DB) error {
-	query := `
-	CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
-	
-	-- Consolidated user keysets table
-	CREATE TABLE IF NOT EXISTS user_keysets (
-		user_id INTEGER PRIMARY KEY,
-		key_data TEXT NOT NULL,
-		encryption_key TEXT NOT NULL,
-		created TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-		updated TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-	);
-
-	-- Indexes for performance
-	CREATE INDEX IF NOT EXISTS idx_user_keysets_updated ON user_keysets(updated);
-	`
-
-	_, err := db.Exec(query)
-	if err != nil {
-		return fmt.Errorf("failed to create tables: %w", err)
-	}
-
-	return nil
-}

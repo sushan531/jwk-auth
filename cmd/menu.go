@@ -40,11 +40,6 @@ func runMenu(cmd *cobra.Command, args []string) {
 	}
 	defer db.Close()
 
-	// Create tables if they don't exist
-	if err := database.CreateTables(db); err != nil {
-		log.Fatalf("Failed to create tables: %v", err)
-	}
-
 	authRepo := generated.New(db)
 	// Initialize repository
 	userRepo := repository.NewUserAuthRepository(authRepo)
@@ -379,18 +374,4 @@ func verifyTokenInteractive(tokenService service.TokenService, reader *bufio.Rea
 	}
 
 	fmt.Printf("\nToken is valid! Claims: %+v\n", claims)
-}
-
-func verifyRefreshTokenInteractive(tokenService service.TokenService, reader *bufio.Reader) {
-	fmt.Print("Enter refresh token: ")
-	token, _ := reader.ReadString('\n')
-	token = strings.TrimSpace(token)
-
-	claims, err := tokenService.VerifyRefreshToken(token)
-	if err != nil {
-		fmt.Printf("Error verifying refresh token: %v\n", err)
-		return
-	}
-
-	fmt.Printf("\nRefresh token is valid! Claims: %+v\n", claims)
 }
