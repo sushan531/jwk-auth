@@ -69,9 +69,7 @@ func (a tokenService) GenerateTokenPairWithKeyID(claims map[string]interface{}, 
 	if userID, exists := claims["user_id"]; exists {
 		refreshClaims["user_id"] = userID
 	}
-	if id, exists := claims["id"]; exists {
-		refreshClaims["id"] = id
-	}
+	refreshClaims["device_fingerprint"] = claims["device_fingerprint"]
 	refreshClaims["token_type"] = "refresh"
 
 	refreshToken, err := a.jwtManager.GenerateRefreshTokenWithKeyID(refreshClaims, keyID)
