@@ -8,7 +8,7 @@ require (
 	github.com/lestrrat-go/jwx/v3 v3.0.11
 	github.com/lib/pq v1.10.9
 	github.com/spf13/cobra v1.10.1
-	github.com/sushan531/auth-sqlc v0.0.11-HK
+	github.com/sushan531/auth-sqlc v0.0.77-HK
 )
 
 require (
